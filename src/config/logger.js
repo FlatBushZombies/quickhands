@@ -1,10 +1,11 @@
 import winston from "winston";
 
-const isProduction = process.env.NODE_ENV === "production";
+const isProduction =
+  process.env.NODE_ENV === "production" || process.env.VERCEL_ENV;
 
 const transports = [];
 
-// ✅ Local/dev environment: allow file logs
+// ✅ Only use file logging when running locally
 if (!isProduction) {
   transports.push(
     new winston.transports.File({
@@ -22,7 +23,7 @@ if (!isProduction) {
     })
   );
 } else {
-  // ✅ Production (Vercel): console logs only
+  // ✅ In Vercel, log only to console
   transports.push(
     new winston.transports.Console({
       format: winston.format.combine(
