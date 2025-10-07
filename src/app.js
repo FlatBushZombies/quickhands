@@ -4,6 +4,7 @@ import helmet from "helmet"
 import morgan from 'morgan';
 import cors from 'cors'
 import cookieParser from 'cookie-parser';
+import authRoutes from '#routes/auth.routes.js';
 
 const app = express();
 
@@ -24,6 +25,16 @@ app.get('/', (req, res) => {
     logger.info('Root endpoint from Quickhands API');
     res.status(200).send('Hello from Quickhands API');
 })
+
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'OK', timestamp: new Date().toISOString(), uptime: process.uptime()})
+})
+
+app.get('/api', (req, res) => {
+    res.status(200).json({ message: 'Quickhands API is runnning'})
+})
+
+app.use('/api/auth', authRoutes);
 
 export default app;
 
