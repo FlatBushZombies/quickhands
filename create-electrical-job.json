@@ -1,0 +1,10 @@
+{
+  "serviceType": "Electrical",
+  "selectedServices": ["Outlet Installation", "Wiring Repair"],
+  "startDate": "2025-10-20",
+  "endDate": "2025-10-22",
+  "maxPrice": 400.00,
+  "specialistChoice": "Mike Johnson",
+  "additionalInfo": "Need to install 3 new outlets in living room",
+  "documents": ["floor_plan.pdf"]
+}

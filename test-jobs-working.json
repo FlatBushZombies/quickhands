@@ -1,0 +1,68 @@
+{
+  "create_job_test": {
+    "serviceType": "HVAC",
+    "selectedServices": ["AC Repair", "Duct Cleaning"],
+    "startDate": "2025-11-01",
+    "endDate": "2025-11-03",
+    "maxPrice": 600,
+    "specialistChoice": "Top Rated",
+    "additionalInfo": "Annual maintenance required",
+    "documents": ["warranty.pdf"]
+  },
+  "test_commands": {
+    "1_fetch_all_jobs": "Invoke-WebRequest -Uri \"http://localhost:3000/api/jobs\" -Method GET | Select-Object -ExpandProperty Content",
+    "2_search_no_filters": "Invoke-WebRequest -Uri \"http://localhost:3000/api/jobs/search\" -Method GET | Select-Object -ExpandProperty Content",
+    "3_search_by_service_type": "Invoke-WebRequest -Uri \"http://localhost:3000/api/jobs/search?serviceType=Plumbing\" -Method GET | Select-Object -ExpandProperty Content",
+    "4_search_by_max_price": "Invoke-WebRequest -Uri \"http://localhost:3000/api/jobs/search?maxPrice=200\" -Method GET | Select-Object -ExpandProperty Content",
+    "5_search_by_selected_service": "Invoke-WebRequest -Uri \"http://localhost:3000/api/jobs/search?selectedService=Cleaning\" -Method GET | Select-Object -ExpandProperty Content",
+    "6_create_new_job": "Invoke-WebRequest -Uri \"http://localhost:3000/api/jobs\" -Method POST -ContentType \"application/json\" -Body '{\"serviceType\": \"HVAC\", \"selectedServices\": [\"AC Repair\", \"Duct Cleaning\"], \"startDate\": \"2025-11-01\", \"endDate\": \"2025-11-03\", \"maxPrice\": 600, \"specialistChoice\": \"Top Rated\", \"additionalInfo\": \"Annual maintenance required\", \"documents\": [\"warranty.pdf\"]}' | Select-Object -ExpandProperty Content"
+  },
+  "working_examples": [
+    {
+      "description": "GET all jobs",
+      "method": "GET",
+      "url": "http://localhost:3000/api/jobs",
+      "expected": "Returns all service requests with camelCase field names"
+    },
+    {
+      "description": "POST create new job",
+      "method": "POST", 
+      "url": "http://localhost:3000/api/jobs",
+      "body": {
+        "serviceType": "Landscaping",
+        "selectedServices": ["Tree Trimming", "Garden Design"],
+        "startDate": "2025-11-10",
+        "endDate": "2025-11-15", 
+        "maxPrice": 800,
+        "specialistChoice": "Top Rated",
+        "additionalInfo": "Backyard renovation project",
+        "documents": ["design.pdf", "measurements.xlsx"]
+      },
+      "expected": "Returns created job with status 201"
+    },
+    {
+      "description": "GET search without filters",
+      "method": "GET",
+      "url": "http://localhost:3000/api/jobs/search",
+      "expected": "Returns all jobs with pagination info"
+    },
+    {
+      "description": "GET search by service type",
+      "method": "GET", 
+      "url": "http://localhost:3000/api/jobs/search?serviceType=Electrical",
+      "expected": "Returns jobs matching service type with partial matching"
+    },
+    {
+      "description": "GET search by max price",
+      "method": "GET",
+      "url": "http://localhost:3000/api/jobs/search?maxPrice=250",
+      "expected": "Returns jobs with maxPrice <= 250"
+    },
+    {
+      "description": "GET search by selected service", 
+      "method": "GET",
+      "url": "http://localhost:3000/api/jobs/search?selectedService=Outlet Installation",
+      "expected": "Returns jobs that include the specified service in selectedServices array"
+    }
+  ]
+}

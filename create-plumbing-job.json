@@ -1,0 +1,10 @@
+{
+  "serviceType": "Plumbing",
+  "selectedServices": ["Leak Repair", "Pipe Installation"],
+  "startDate": "2025-10-15",
+  "endDate": "2025-10-17",
+  "maxPrice": 250.00,
+  "specialistChoice": "John Smith",
+  "additionalInfo": "Urgent kitchen leak repair needed",
+  "documents": ["estimate.pdf", "photos.jpg"]
+}

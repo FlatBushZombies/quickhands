@@ -1,0 +1,201 @@
+{
+  "test_data": {
+    "create_job_samples": [
+      {
+        "description": "Basic Plumbing Job",
+        "data": {
+          "serviceType": "Plumbing",
+          "selectedServices": ["Leak Repair", "Pipe Installation"],
+          "startDate": "2025-10-15",
+          "endDate": "2025-10-17",
+          "maxPrice": 250.00,
+          "specialistChoice": "John Smith",
+          "additionalInfo": "Urgent kitchen leak repair needed",
+          "documents": ["estimate.pdf", "photos.jpg"]
+        }
+      },
+      {
+        "description": "Electrical Work",
+        "data": {
+          "serviceType": "Electrical",
+          "selectedServices": ["Outlet Installation", "Wiring Repair"],
+          "startDate": "2025-10-20",
+          "endDate": "2025-10-22",
+          "maxPrice": 400.00,
+          "specialistChoice": "Mike Johnson",
+          "additionalInfo": "Need to install 3 new outlets in living room",
+          "documents": ["floor_plan.pdf"]
+        }
+      },
+      {
+        "description": "HVAC Service",
+        "data": {
+          "serviceType": "HVAC",
+          "selectedServices": ["AC Repair", "Duct Cleaning"],
+          "startDate": "2025-11-01",
+          "endDate": "2025-11-03",
+          "maxPrice": 600.00,
+          "specialistChoice": "Sarah Wilson",
+          "additionalInfo": "Annual maintenance and repair",
+          "documents": ["warranty.pdf", "maintenance_log.xlsx"]
+        }
+      },
+      {
+        "description": "Carpentry Work",
+        "data": {
+          "serviceType": "Carpentry",
+          "selectedServices": ["Cabinet Installation", "Trim Work"],
+          "startDate": "2025-10-25",
+          "endDate": "2025-10-30",
+          "maxPrice": 1200.00,
+          "specialistChoice": "David Brown",
+          "additionalInfo": "Kitchen cabinet installation with custom trim",
+          "documents": ["design.pdf", "measurements.txt"]
+        }
+      },
+      {
+        "description": "Landscaping Project",
+        "data": {
+          "serviceType": "Landscaping",
+          "selectedServices": ["Tree Trimming", "Garden Design", "Irrigation"],
+          "startDate": "2025-11-10",
+          "endDate": "2025-11-15",
+          "maxPrice": 800.00,
+          "specialistChoice": "Lisa Garcia",
+          "additionalInfo": "Complete backyard makeover with new irrigation system",
+          "documents": ["design_concept.pdf", "plant_list.xlsx", "before_photos.zip"]
+        }
+      }
+    ],
+    "search_test_cases": [
+      {
+        "description": "Search by service type",
+        "params": {
+          "serviceType": "Plumbing"
+        }
+      },
+      {
+        "description": "Search by selected service",
+        "params": {
+          "selectedService": "Leak Repair"
+        }
+      },
+      {
+        "description": "Search by date range",
+        "params": {
+          "startDate": "2025-10-01",
+          "endDate": "2025-12-31"
+        }
+      },
+      {
+        "description": "Search by max price",
+        "params": {
+          "maxPrice": 500
+        }
+      },
+      {
+        "description": "Search by specialist",
+        "params": {
+          "specialistChoice": "John Smith"
+        }
+      },
+      {
+        "description": "Search in additional info",
+        "params": {
+          "additionalInfo": "urgent"
+        }
+      },
+      {
+        "description": "Complex search - Plumbing jobs under $300",
+        "params": {
+          "serviceType": "Plumbing",
+          "maxPrice": 300,
+          "sortBy": "maxPrice",
+          "sortOrder": "ASC"
+        }
+      },
+      {
+        "description": "Search with pagination - first page",
+        "params": {
+          "limit": 2,
+          "offset": 0,
+          "sortBy": "startDate",
+          "sortOrder": "DESC"
+        }
+      },
+      {
+        "description": "Search with pagination - second page",
+        "params": {
+          "limit": 2,
+          "offset": 2,
+          "sortBy": "startDate",
+          "sortOrder": "DESC"
+        }
+      },
+      {
+        "description": "Advanced multi-filter search",
+        "params": {
+          "serviceType": "Electrical",
+          "selectedService": "Outlet Installation",
+          "startDate": "2025-10-15",
+          "maxPrice": 450,
+          "sortBy": "endDate",
+          "sortOrder": "ASC"
+        }
+      }
+    ]
+  },
+  "httpie_commands": {
+    "create_jobs": [
+      "echo 'Creating Basic Plumbing Job:'",
+      "http POST localhost:3000/api/jobs Content-Type:application/json serviceType='Plumbing' selectedServices:='[\"Leak Repair\", \"Pipe Installation\"]' startDate='2025-10-15' endDate='2025-10-17' maxPrice:=250.00 specialistChoice='John Smith' additionalInfo='Urgent kitchen leak repair needed' documents:='[\"estimate.pdf\", \"photos.jpg\"]'",
+      "",
+      "echo 'Creating Electrical Work Job:'",
+      "http POST localhost:3000/api/jobs Content-Type:application/json serviceType='Electrical' selectedServices:='[\"Outlet Installation\", \"Wiring Repair\"]' startDate='2025-10-20' endDate='2025-10-22' maxPrice:=400.00 specialistChoice='Mike Johnson' additionalInfo='Need to install 3 new outlets in living room' documents:='[\"floor_plan.pdf\"]'",
+      "",
+      "echo 'Creating HVAC Service Job:'",
+      "http POST localhost:3000/api/jobs Content-Type:application/json serviceType='HVAC' selectedServices:='[\"AC Repair\", \"Duct Cleaning\"]' startDate='2025-11-01' endDate='2025-11-03' maxPrice:=600.00 specialistChoice='Sarah Wilson' additionalInfo='Annual maintenance and repair' documents:='[\"warranty.pdf\", \"maintenance_log.xlsx\"]'",
+      "",
+      "echo 'Creating Carpentry Job:'",
+      "http POST localhost:3000/api/jobs Content-Type:application/json serviceType='Carpentry' selectedServices:='[\"Cabinet Installation\", \"Trim Work\"]' startDate='2025-10-25' endDate='2025-10-30' maxPrice:=1200.00 specialistChoice='David Brown' additionalInfo='Kitchen cabinet installation with custom trim' documents:='[\"design.pdf\", \"measurements.txt\"]'",
+      "",
+      "echo 'Creating Landscaping Job:'",
+      "http POST localhost:3000/api/jobs Content-Type:application/json serviceType='Landscaping' selectedServices:='[\"Tree Trimming\", \"Garden Design\", \"Irrigation\"]' startDate='2025-11-10' endDate='2025-11-15' maxPrice:=800.00 specialistChoice='Lisa Garcia' additionalInfo='Complete backyard makeover with new irrigation system' documents:='[\"design_concept.pdf\", \"plant_list.xlsx\", \"before_photos.zip\"]'"
+    ],
+    "fetch_jobs": [
+      "echo 'Fetching all jobs:'",
+      "http GET localhost:3000/api/jobs"
+    ],
+    "search_jobs": [
+      "echo 'Search by service type:'",
+      "http GET localhost:3000/api/jobs/search serviceType==Plumbing",
+      "",
+      "echo 'Search by selected service:'",
+      "http GET localhost:3000/api/jobs/search selectedService=='Leak Repair'",
+      "",
+      "echo 'Search by date range:'",
+      "http GET localhost:3000/api/jobs/search startDate==2025-10-01 endDate==2025-12-31",
+      "",
+      "echo 'Search by max price:'",
+      "http GET localhost:3000/api/jobs/search maxPrice==500",
+      "",
+      "echo 'Search by specialist:'",
+      "http GET localhost:3000/api/jobs/search specialistChoice=='John Smith'",
+      "",
+      "echo 'Search in additional info:'",
+      "http GET localhost:3000/api/jobs/search additionalInfo==urgent",
+      "",
+      "echo 'Complex search - Plumbing jobs under $300:'",
+      "http GET localhost:3000/api/jobs/search serviceType==Plumbing maxPrice==300 sortBy==maxPrice sortOrder==ASC",
+      "",
+      "echo 'Search with pagination - first page:'",
+      "http GET localhost:3000/api/jobs/search limit==2 offset==0 sortBy==startDate sortOrder==DESC",
+      "",
+      "echo 'Search with pagination - second page:'",
+      "http GET localhost:3000/api/jobs/search limit==2 offset==2 sortBy==startDate sortOrder==DESC",
+      "",
+      "echo 'Advanced multi-filter search:'",
+      "http GET localhost:3000/api/jobs/search serviceType==Electrical selectedService=='Outlet Installation' startDate==2025-10-15 maxPrice==450 sortBy==endDate sortOrder==ASC"
+    ]
+  }
+}
