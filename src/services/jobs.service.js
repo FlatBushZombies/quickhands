@@ -15,8 +15,7 @@ export async function getAllJobs() {
         max_price,
         specialist_choice,
         additional_info,
-        documents,
-        created_at
+        documents
       FROM service_request;
     `;
     logger.info(`Fetched ${result.length} service requests successfully`);
@@ -29,26 +28,31 @@ export async function getAllJobs() {
 
 export async function createJob(jobData) {
   const {
-        service_type,
-        selected_services,
-        start_date,
-        end_date,
-        max_price,
-        specialist_choice,
-        additional_info,
-        documents,
-        created_at
+    service_type,
+    selected_services,
+    start_date,
+    end_date,
+    max_price,
+    specialist_choice,
+    additional_info,
+    documents,
   } = jobData;
 
   try {
     const result = await sql`
       INSERT INTO service_request (
         service_type, selected_services, start_date, end_date, max_price,
-        specialist_choice, additional_info, documents, created_at
+        specialist_choice, additional_info, documents
       )
       VALUES (
-        ${serviceType}, ${selectedServices}, ${startDate}, ${endDate}, ${maxPrice},
-        ${specialistChoice}, ${additionalInfo}, ${documents}
+        ${service_type},
+        ${selected_services}, 
+        ${start_date},
+        ${end_date},
+        ${max_price},
+        ${specialist_choice},
+        ${additional_info},
+        ${documents}
       )
       RETURNING *;
     `;

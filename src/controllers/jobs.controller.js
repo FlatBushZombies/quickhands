@@ -22,15 +22,36 @@ export async function getJobs(req, res, next) {
 
 export async function createJobController(req, res, next) {
   try {
-    const jobData = req.body;
+    const {
+      serviceType,
+      selectedServices,
+      startDate,
+      endDate,
+      maxPrice,
+      specialistChoice,
+      additionalInfo,
+      documents,
+    } = req.body;
 
     // Basic validation
-    if (!jobData.serviceType || !jobData.startDate || !jobData.endDate) {
+    if (!serviceType || !startDate || !endDate) {
       return res.status(400).json({
         success: false,
         message: "Missing required fields: serviceType, startDate, endDate",
       });
     }
+
+    // Map to snake_case for database and handle arrays as JSON
+    const jobData = {
+      service_type: serviceType,
+      selected_services: JSON.stringify(selectedServices || []),
+      start_date: startDate,
+      end_date: endDate,
+      max_price: Number(maxPrice) || 0,
+      specialist_choice: specialistChoice || null,
+      additional_info: additionalInfo || null,
+      documents: JSON.stringify(documents || []),
+    };
 
     const newJob = await createJob(jobData);
     logger.info(`Created new service request: ${newJob.id}`);
