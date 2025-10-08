@@ -7,6 +7,7 @@ export async function getAllJobs() {
   try {
     const result = await sql`
       SELECT
+        id,
         service_type,
         selected_services,
         start_date,
@@ -21,7 +22,40 @@ export async function getAllJobs() {
     logger.info(`Fetched ${result.length} service requests successfully`);
     return result;
   } catch (error) {
-    logger.error("Failed to fetch service requests:", error);
+    logger.error("Database error (fetch):", error);
     throw new Error("Database query failed while retrieving service requests.");
+  }
+}
+
+export async function createJob(jobData) {
+  const {
+        service_type,
+        selected_services,
+        start_date,
+        end_date,
+        max_price,
+        specialist_choice,
+        additional_info,
+        documents,
+        created_at
+  } = jobData;
+
+  try {
+    const result = await sql`
+      INSERT INTO service_request (
+        service_type, selected_services, start_date, end_date, max_price,
+        specialist_choice, additional_info, documents, created_at
+      )
+      VALUES (
+        ${serviceType}, ${selectedServices}, ${startDate}, ${endDate}, ${maxPrice},
+        ${specialistChoice}, ${additionalInfo}, ${documents}
+      )
+      RETURNING *;
+    `;
+    logger.info("New service request created successfully");
+    return result[0];
+  } catch (error) {
+    logger.error("Database error (insert):", error);
+    throw new Error("Failed to create new service request in the database.");
   }
 }
