@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import authRoutes from '#routes/auth.routes.js';
 import jobsRoutes from '#routes/jobs.routes.js';
 import userRoutes from '#routes/user.routes.js';
+import notificationsRoutes from '#routes/notifications.routes.js';
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.get('/api', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 export default app;
 

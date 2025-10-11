@@ -1,0 +1,10 @@
+{
+  "serviceType": "Frontend Development",
+  "selectedServices": ["React", "JavaScript", "UI Implementation"],
+  "startDate": "2025-10-12T09:00:00Z",
+  "endDate": "2025-10-12T17:00:00Z",
+  "maxPrice": 500,
+  "specialistChoice": "any",
+  "additionalInfo": "Build a responsive landing page in React.",
+  "documents": []
+}

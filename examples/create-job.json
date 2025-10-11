@@ -1,0 +1,10 @@
+{
+  "serviceType": "Plumbing",
+  "selectedServices": ["Leak Repair", "Pipe Installation"],
+  "startDate": "2025-10-15T09:00:00Z",
+  "endDate": "2025-10-15T12:00:00Z",
+  "maxPrice": 150.0,
+  "specialistChoice": "any",
+  "additionalInfo": "Kitchen sink is leaking under the basin.",
+  "documents": []
+}

@@ -54,6 +54,26 @@ export async function createJobController(req, res) {
     const newJob = await createJob(jobData);
     logger.info(`Created new service request: ${newJob.id}`);
 
+    // Trigger notifications to users matching skills
+    try {
+      const { findUsersMatchingJob } = await import('#services/match.service.js');
+      const { createNotification } = await import('#services/notifications.service.js');
+      const { emitToUser } = await import('#config/socket.js');
+
+      const selectedServicesArr = Array.isArray(selectedServices) ? selectedServices : (selectedServices ? JSON.parse(selectedServices).filter(Boolean) : []);
+      const matchedUsers = await findUsersMatchingJob({ serviceType, selectedServices: selectedServicesArr });
+
+      const message = `New job posted: ${serviceType}`;
+      for (const u of matchedUsers) {
+        const notif = await createNotification({ userId: u.id, jobId: newJob.id, message });
+        emitToUser(u.id, 'notification:new', { notification: notif });
+      }
+      logger.info(`Notifications sent for jobId=${newJob.id} to ${matchedUsers.length} users`);
+    } catch (notifyErr) {
+      logger.error('Error while triggering notifications for new job', notifyErr);
+      // Do not fail the request if notifications fail
+    }
+
     return res.status(201).json({
       success: true,
       message: "Service request created successfully",

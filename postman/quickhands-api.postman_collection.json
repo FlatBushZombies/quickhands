@@ -1,0 +1,172 @@
+{
+  "info": {
+    "name": "Quickhands API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Collection to test local Quickhands API endpoints for user onboarding, jobs, and notifications."
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Update User Onboarding",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"clerkId\": \"user_test_123\",\n  \"name\": \"Jane Doe\",\n  \"skills\": \"Plumbing, Leak Repair, Pipe Installation\",\n  \"experienceLevel\": \"Senior\",\n  \"hourlyRate\": 75.5\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/user/update",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "user",
+            "update"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Create Job",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"serviceType\": \"Plumbing\",\n  \"selectedServices\": [\"Leak Repair\", \"Pipe Installation\"],\n  \"startDate\": \"2025-10-15T09:00:00Z\",\n  \"endDate\": \"2025-10-15T12:00:00Z\",\n  \"maxPrice\": 150,\n  \"specialistChoice\": \"any\",\n  \"additionalInfo\": \"Kitchen sink is leaking under the basin.\",\n  \"documents\": []\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/jobs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "jobs"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Notifications by UserId",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/{{userId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "{{userId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Notifications by ClerkId",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/by-clerk/{{clerkId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "by-clerk",
+            "{{clerkId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Mark Notification as Read (by ID)",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/{{notificationId}}/read",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "{{notificationId}}",
+            "read"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Mark All Notifications Read (by ClerkId)",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/by-clerk/{{clerkId}}/read",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "by-clerk",
+            "{{clerkId}}",
+            "read"
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "userId",
+      "value": "1"
+    },
+    {
+      "key": "notificationId",
+      "value": "1"
+    },
+    {
+      "key": "clerkId",
+      "value": "user_test_123"
+    }
+  ]
+}
