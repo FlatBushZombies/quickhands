@@ -129,3 +129,6 @@
 {"level":"info","message":"Fetched 5 service requests successfully","service":"quickhands-api","timestamp":"2025-10-08T13:33:32.089Z"}
 {"level":"info","message":"Successfully retrieved all job requests","service":"quickhands-api","timestamp":"2025-10-08T13:33:32.089Z"}
 {"level":"info","message":"::1 - - [08/Oct/2025:13:33:32 +0000] \"GET /api/jobs HTTP/1.1\" 200 1284 \"-\" \"Mozilla/5.0 (Windows NT; Windows NT 10.0; en-GB) WindowsPowerShell/5.1.19041.4780\"","service":"quickhands-api","timestamp":"2025-10-08T13:33:32.091Z"}
+{"level":"info","message":"Fetched 5 service requests successfully","service":"quickhands-api","timestamp":"2025-10-08T14:20:27.976Z"}
+{"level":"info","message":"Successfully retrieved all job requests","service":"quickhands-api","timestamp":"2025-10-08T14:20:27.982Z"}
+{"level":"info","message":"::1 - - [08/Oct/2025:14:20:27 +0000] \"GET /api/jobs HTTP/1.1\" 200 1284 \"-\" \"HTTPie\"","service":"quickhands-api","timestamp":"2025-10-08T14:20:27.993Z"}
