@@ -186,3 +186,24 @@
 {"level":"info","message":"Notifications sent for jobId=15 to 1 users","service":"quickhands-api","timestamp":"2025-10-11T12:22:51.364Z"}
 {"level":"info","message":"::1 - - [11/Oct/2025:12:22:51 +0000] \"POST /api/jobs HTTP/1.1\" 201 369 \"-\" \"HTTPie\"","service":"quickhands-api","timestamp":"2025-10-11T12:22:51.372Z"}
 {"level":"info","message":"::1 - - [11/Oct/2025:12:23:26 +0000] \"GET /api/notifications/by-clerk/user_33uve4njE18r91saAkLrdozKlVv HTTP/1.1\" 200 168 \"-\" \"HTTPie\"","service":"quickhands-api","timestamp":"2025-10-11T12:23:26.915Z"}
+{"level":"info","message":"Socket.IO initialized","service":"quickhands-api","timestamp":"2025-10-11T13:44:41.758Z"}
+{"level":"info","message":"Socket.IO initialized","service":"quickhands-api","timestamp":"2025-10-11T13:44:44.482Z"}
+{"level":"info","message":"Socket.IO initialized","service":"quickhands-api","timestamp":"2025-10-11T13:45:32.823Z"}
+{"level":"info","message":"New service request created successfully","service":"quickhands-api","timestamp":"2025-10-11T13:45:44.617Z"}
+{"level":"info","message":"Created new service request: 16","service":"quickhands-api","timestamp":"2025-10-11T13:45:44.618Z"}
+{"level":"info","message":"findUsersMatchingJob: matched 2 users for terms=[\"frontend development\",\"react\",\"typescript\",\"ux design\"]","service":"quickhands-api","timestamp":"2025-10-11T13:45:46.654Z"}
+{"level":"info","message":"Notification created id=2 userId=3 jobId=16","service":"quickhands-api","timestamp":"2025-10-11T13:45:46.988Z"}
+{"level":"info","message":"No active sockets for userId=3, skipping emit for event=notification:new","service":"quickhands-api","timestamp":"2025-10-11T13:45:46.989Z"}
+{"level":"info","message":"Notification created id=3 userId=5 jobId=16","service":"quickhands-api","timestamp":"2025-10-11T13:45:47.312Z"}
+{"level":"info","message":"No active sockets for userId=5, skipping emit for event=notification:new","service":"quickhands-api","timestamp":"2025-10-11T13:45:47.314Z"}
+{"level":"info","message":"Notifications sent for jobId=16 to 2 users","service":"quickhands-api","timestamp":"2025-10-11T13:45:47.314Z"}
+{"level":"info","message":"::1 - - [11/Oct/2025:13:45:47 +0000] \"POST /api/jobs HTTP/1.1\" 201 368 \"-\" \"HTTPie\"","service":"quickhands-api","timestamp":"2025-10-11T13:45:47.323Z"}
+{"level":"info","message":"Root endpoint from Quickhands API","service":"quickhands-api","timestamp":"2025-10-11T13:50:46.853Z"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [11/Oct/2025:13:50:46 +0000] \"GET / HTTP/1.1\" 200 25 \"http://localhost:3000/\" \"Mozilla/5.0 (Windows NT 6.1; Trident/7.0; rv:11.0) like Gecko\"","service":"quickhands-api","timestamp":"2025-10-11T13:50:46.856Z"}
+{"level":"info","message":"Socket.IO initialized","service":"quickhands-api","timestamp":"2025-10-15T11:28:32.340Z"}
+{"level":"info","message":"Socket.IO initialized","service":"quickhands-api","timestamp":"2025-10-15T11:28:36.064Z"}
+{"level":"info","message":"Socket.IO initialized","service":"quickhands-api","timestamp":"2025-10-15T11:28:41.093Z"}
+{"level":"info","message":"::1 - - [15/Oct/2025:11:28:46 +0000] \"POST /api/jobs/10 HTTP/1.1\" 404 151 \"-\" \"HTTPie\"","service":"quickhands-api","timestamp":"2025-10-15T11:28:46.797Z"}
+{"level":"info","message":"Fetched service request with ID: 10","service":"quickhands-api","timestamp":"2025-10-15T11:28:58.048Z"}
+{"level":"info","message":"Successfully retrieved job request with ID: 10","service":"quickhands-api","timestamp":"2025-10-15T11:28:58.049Z"}
+{"level":"info","message":"::1 - - [15/Oct/2025:11:28:58 +0000] \"GET /api/jobs/10 HTTP/1.1\" 200 307 \"-\" \"HTTPie\"","service":"quickhands-api","timestamp":"2025-10-15T11:28:58.054Z"}

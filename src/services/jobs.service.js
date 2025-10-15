@@ -18,6 +18,35 @@ function transformJob(job) {
   };
 }
 
+export async function getJobById(jobId) {
+  try {
+    const result = await sql`
+      SELECT
+        id,
+        service_type,
+        selected_services,
+        start_date,
+        end_date,
+        max_price,
+        specialist_choice,
+        additional_info,
+        documents
+      FROM service_request
+      WHERE id = ${jobId};
+    `;
+    
+    if (result.length === 0) {
+      return null;
+    }
+    
+    logger.info(`Fetched service request with ID: ${jobId}`);
+    return transformJob(result[0]);
+  } catch (error) {
+    logger.error("Database error (fetch by ID):", error);
+    throw new Error("Database query failed while retrieving service request by ID.");
+  }
+}
+
 export async function getAllJobs() {
   try {
     const result = await sql`

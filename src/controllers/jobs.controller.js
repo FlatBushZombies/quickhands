@@ -1,5 +1,41 @@
-import { getAllJobs, createJob, searchJobs } from "#services/jobs.service.js";
+import { getAllJobs, createJob, searchJobs, getJobById } from "#services/jobs.service.js";
 import logger from "#config/logger.js";
+
+export async function getJob(req, res) {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Job ID is required",
+      });
+    }
+
+    const job = await getJobById(id);
+    
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: "Service request not found",
+      });
+    }
+
+    logger.info(`Successfully retrieved job request with ID: ${id}`);
+    return res.status(200).json({
+      success: true,
+      message: "Service request fetched successfully",
+      data: job,
+    });
+  } catch (error) {
+    logger.error("Error fetching job by ID:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve service request",
+      error: error.message,
+    });
+  }
+}
 
 export async function getJobs(req, res) {
   try {

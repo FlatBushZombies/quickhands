@@ -8,6 +8,7 @@ import authRoutes from '#routes/auth.routes.js';
 import jobsRoutes from '#routes/jobs.routes.js';
 import userRoutes from '#routes/user.routes.js';
 import notificationsRoutes from '#routes/notifications.routes.js';
+import { securityMiddleware } from '#middleware/security.middleware.js';
 
 const app = express();
 
@@ -22,6 +23,8 @@ app.use(
     stream: { write: message => logger.info(message.trim()) },
   })
 );
+
+app.use(securityMiddleware);
 
 app.get('/', (req, res) => {
 
