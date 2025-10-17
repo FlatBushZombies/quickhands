@@ -14,7 +14,13 @@ function transformJob(job) {
     maxPrice: job.max_price,
     specialistChoice: job.specialist_choice,
     additionalInfo: job.additional_info,
-    documents: job.documents
+    documents: job.documents,
+    // User information
+    clerkId: job.clerk_id,
+    userName: job.user_name,
+    userAvatar: job.user_avatar,
+    createdAt: job.created_at,
+    updatedAt: job.updated_at
   };
 }
 
@@ -30,7 +36,12 @@ export async function getJobById(jobId) {
         max_price,
         specialist_choice,
         additional_info,
-        documents
+        documents,
+        clerk_id,
+        user_name,
+        user_avatar,
+        created_at,
+        updated_at
       FROM service_request
       WHERE id = ${jobId};
     `;
@@ -59,8 +70,14 @@ export async function getAllJobs() {
         max_price,
         specialist_choice,
         additional_info,
-        documents
-      FROM service_request;
+        documents,
+        clerk_id,
+        user_name,
+        user_avatar,
+        created_at,
+        updated_at
+      FROM service_request
+      ORDER BY created_at DESC;
     `;
     logger.info(`Fetched ${result.length} service requests successfully`);
     return result.map(transformJob);
@@ -79,14 +96,18 @@ export async function createJob(jobData) {
     maxPrice,
     specialistChoice,
     additionalInfo,
-    documents
+    documents,
+    // User information
+    clerkId,
+    userName,
+    userAvatar
   } = jobData;
 
   try {
     const result = await sql`
       INSERT INTO service_request (
         service_type, selected_services, start_date, end_date, max_price,
-        specialist_choice, additional_info, documents
+        specialist_choice, additional_info, documents, clerk_id, user_name, user_avatar
       )
       VALUES (
         ${serviceType},
@@ -96,7 +117,10 @@ export async function createJob(jobData) {
         ${maxPrice},
         ${specialistChoice},
         ${additionalInfo},
-        ${documents}
+        ${documents},
+        ${clerkId},
+        ${userName},
+        ${userAvatar}
       )
       RETURNING *;
     `;
@@ -135,10 +159,10 @@ export async function searchJobs(filters) {
     if (serviceType) {
       // Search by service type
       result = await sql`
-        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents
+        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents, clerk_id, user_name, user_avatar, created_at, updated_at
         FROM service_request
         WHERE service_type ILIKE ${'%' + serviceType + '%'}
-        ORDER BY start_date DESC
+        ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
       countResult = await sql`SELECT COUNT(*) as total FROM service_request WHERE service_type ILIKE ${'%' + serviceType + '%'}`;
@@ -146,10 +170,10 @@ export async function searchJobs(filters) {
     else if (maxPrice) {
       // Search by max price
       result = await sql`
-        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents
+        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents, clerk_id, user_name, user_avatar, created_at, updated_at
         FROM service_request
         WHERE max_price <= ${maxPrice}
-        ORDER BY start_date DESC
+        ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
       countResult = await sql`SELECT COUNT(*) as total FROM service_request WHERE max_price <= ${maxPrice}`;
@@ -157,10 +181,10 @@ export async function searchJobs(filters) {
     else if (selectedService) {
       // Search by selected service
       result = await sql`
-        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents
+        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents, clerk_id, user_name, user_avatar, created_at, updated_at
         FROM service_request
         WHERE selected_services::jsonb ? ${selectedService}
-        ORDER BY start_date DESC
+        ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
       countResult = await sql`SELECT COUNT(*) as total FROM service_request WHERE selected_services::jsonb ? ${selectedService}`;
@@ -168,9 +192,9 @@ export async function searchJobs(filters) {
     else {
       // No specific filters - return all with pagination
       result = await sql`
-        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents
+        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents, clerk_id, user_name, user_avatar, created_at, updated_at
         FROM service_request
-        ORDER BY start_date DESC
+        ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
       countResult = await sql`SELECT COUNT(*) as total FROM service_request`;

@@ -9,6 +9,7 @@ import jobsRoutes from '#routes/jobs.routes.js';
 import userRoutes from '#routes/user.routes.js';
 import notificationsRoutes from '#routes/notifications.routes.js';
 import { securityMiddleware } from '#middleware/security.middleware.js';
+import { clerkAuth } from '#middleware/clerk.middleware.js';
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use(
   })
 );
 
+app.use(clerkAuth);
 app.use(securityMiddleware);
 
 app.get('/', (req, res) => {
