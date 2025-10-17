@@ -22,7 +22,7 @@ export const securityMiddleware =  async (req, res, next) => {
                 break;
             case 'guest':
                 limit=5
-                message:'Guest request limit exceeded'
+                message='Guest request limit exceeded'
                 break;
         }
 
@@ -57,7 +57,7 @@ export const securityMiddleware =  async (req, res, next) => {
         next();
         
     } catch (error) {
-        console.error('Arcjet middleware error:', e);
+        console.error('Arcjet middleware error:', error);
         res.status(500).json({error: 'Internal server error', message: 'Something went wrong with security middleware'})
-    }    
+    }
 }

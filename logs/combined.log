@@ -207,3 +207,9 @@
 {"level":"info","message":"Fetched service request with ID: 10","service":"quickhands-api","timestamp":"2025-10-15T11:28:58.048Z"}
 {"level":"info","message":"Successfully retrieved job request with ID: 10","service":"quickhands-api","timestamp":"2025-10-15T11:28:58.049Z"}
 {"level":"info","message":"::1 - - [15/Oct/2025:11:28:58 +0000] \"GET /api/jobs/10 HTTP/1.1\" 200 307 \"-\" \"HTTPie\"","service":"quickhands-api","timestamp":"2025-10-15T11:28:58.054Z"}
+{"level":"info","message":"Socket.IO initialized","service":"quickhands-api","timestamp":"2025-10-17T17:13:04.502Z"}
+{"level":"info","message":"Socket.IO initialized","service":"quickhands-api","timestamp":"2025-10-17T17:13:08.625Z"}
+{"level":"info","message":"Socket.IO initialized","service":"quickhands-api","timestamp":"2025-10-17T17:16:34.444Z"}
+{"level":"info","message":"Socket.IO initialized","service":"quickhands-api","timestamp":"2025-10-17T17:24:55.865Z"}
+{"level":"info","message":"Socket.IO initialized","service":"quickhands-api","timestamp":"2025-10-17T17:25:07.522Z"}
+{"level":"info","message":"::1 - - [17/Oct/2025:17:25:11 +0000] \"POST /api/jobs HTTP/1.1\" 401 48 \"-\" \"HTTPie\"","service":"quickhands-api","timestamp":"2025-10-17T17:25:11.924Z"}
