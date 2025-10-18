@@ -8,12 +8,16 @@ export async function clerkAuth(req, res, next) {
     
     if (token) {
       try {
-        const session = await verifyToken(token, { apiKey: process.env.CLERK_API_KEY });
-        if (session) {
+        // ✅ Fixed: Use correct verifyToken syntax for current Clerk SDK
+        const payload = await verifyToken(token, {
+          secretKey: process.env.CLERK_SECRET_KEY, // Use SECRET_KEY, not API_KEY
+        });
+        
+        if (payload) {
           req.user = {
-            clerkId: session.sub,
-            userName: session.name || session.email_address || "Anonymous",
-            userAvatar: session.picture || null,
+            clerkId: payload.sub,
+            userName: payload.name || payload.email || "Anonymous",
+            userAvatar: payload.picture || null,
           };
         }
       } catch (authErr) {
@@ -34,26 +38,45 @@ export async function requireAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization || "";
     const token = authHeader.replace("Bearer ", "");
+    
+    console.log("🔑 RequireAuth - Token received:", token ? "Yes (" + token.length + " chars)" : "No");
+    
     if (!token) {
+      console.log("❌ RequireAuth - No token provided");
       return res.status(401).json({ success: false, message: "Missing auth token" });
     }
 
-    // Verify the token with your backend-api template
-    const session = await verifyToken(token, { apiKey: process.env.CLERK_API_KEY });
-    if (!session) {
+    // ✅ Fixed: Use correct verifyToken syntax
+    const payload = await verifyToken(token, {
+      secretKey: process.env.CLERK_SECRET_KEY, // Use SECRET_KEY, not API_KEY
+    });
+    
+    console.log("🔑 RequireAuth - Token verification:", payload ? "Success" : "Failed");
+    
+    if (!payload) {
+      console.log("❌ RequireAuth - Invalid token payload");
       return res.status(401).json({ success: false, message: "Invalid token" });
     }
 
-    // Attach user info
+    // ✅ Attach user info from the JWT payload
     req.user = {
-      clerkId: session.sub, // Clerk user ID
-      userName: session.name || session.email_address || "Anonymous",
-      userAvatar: session.picture || null,
+      clerkId: payload.sub, // JWT subject (user ID)
+      userName: payload.name || payload.email || "Anonymous",
+      userAvatar: payload.picture || null,
     };
+    
+    console.log("✅ RequireAuth - User authenticated:", {
+      clerkId: req.user.clerkId,
+      userName: req.user.userName
+    });
 
     next();
   } catch (err) {
-    console.error("Clerk auth error:", err);
+    console.error("❌ Clerk auth error:", {
+      message: err.message,
+      name: err.name,
+      stack: err.stack?.substring(0, 200)
+    });
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
 }
