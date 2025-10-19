@@ -25,36 +25,24 @@ function transformJob(job) {
 }
 
 export async function getJobById(jobId) {
+  const id = Number(jobId);
+  if (isNaN(id)) throw new Error(`Invalid job ID: ${jobId}`);
+
   try {
     const result = await sql`
-      SELECT
-        id,
-        service_type,
-        selected_services,
-        start_date,
-        end_date,
-        max_price,
-        specialist_choice,
-        additional_info,
-        documents,
-        clerk_id,
-        user_name,
-        user_avatar,
-        created_at,
-        updated_at
+      SELECT *
       FROM service_request
-      WHERE id = ${jobId};
+      WHERE id = ${id};
     `;
-    
-    if (result.length === 0) {
+
+    if (!result || result.length === 0) {
       return null;
     }
-    
-    logger.info(`Fetched service request with ID: ${jobId}`);
+
     return transformJob(result[0]);
   } catch (error) {
-    logger.error("Database error (fetch by ID):", error);
-    throw new Error("Database query failed while retrieving service request by ID.");
+    logger.error(`Database error fetching job ID ${id}:`, error);
+    throw error;
   }
 }
 
@@ -74,18 +62,39 @@ export async function getAllJobs() {
         clerk_id,
         user_name,
         user_avatar,
-        created_at,
-        updated_at
+        created_at
       FROM service_request
       ORDER BY created_at DESC;
     `;
+
     logger.info(`Fetched ${result.length} service requests successfully`);
-    return result.map(transformJob);
+    logger.debug("getAllJobs raw result:", result);
+
+    return result.map(job => ({
+      id: job.id,
+      serviceType: job.service_type,
+      selectedServices: Array.isArray(job.selected_services)
+        ? job.selected_services
+        : JSON.parse(job.selected_services || '[]'),
+      startDate: job.start_date,
+      endDate: job.end_date,
+      maxPrice: Number(job.max_price) || 0,
+      specialistChoice: job.specialist_choice,
+      additionalInfo: job.additional_info,
+      documents: Array.isArray(job.documents)
+        ? job.documents
+        : JSON.parse(job.documents || '[]'),
+      clerkId: job.clerk_id,
+      userName: job.user_name || "Anonymous",
+      userAvatar: job.user_avatar || null,
+      createdAt: job.created_at,
+    }));
   } catch (error) {
-    logger.error("Database error (fetch):", error);
+    logger.error("Database error (fetch all jobs):", error);
     throw new Error("Database query failed while retrieving service requests.");
   }
 }
+
 
 export async function createJob(jobData) {
   const {
