@@ -16,6 +16,8 @@ function transformUser(user) {
     skills: user.skills,
     experienceLevel: user.experience_level,
     hourlyRate: user.hourly_rate,
+    // Onboarding flag (defaults to false if column is missing/null)
+    completedOnboarding: user.completed_onboarding === true,
     createdAt: user.created_at,
     updatedAt: user.updated_at
   };
@@ -39,7 +41,8 @@ export async function upsertUser(userData) {
     name,
     skills,
     experienceLevel,
-    hourlyRate
+    hourlyRate,
+    completedOnboarding = false,
   } = userData;
 
   try {
@@ -51,6 +54,7 @@ export async function upsertUser(userData) {
         skills,
         experience_level,
         hourly_rate,
+        completed_onboarding,
         created_at,
         updated_at
       )
@@ -60,6 +64,7 @@ export async function upsertUser(userData) {
         ${skills || null},
         ${experienceLevel || null},
         ${hourlyRate || null},
+        ${completedOnboarding},
         NOW(),
         NOW()
       )
@@ -69,6 +74,7 @@ export async function upsertUser(userData) {
         skills = EXCLUDED.skills,
         experience_level = EXCLUDED.experience_level,
         hourly_rate = EXCLUDED.hourly_rate,
+        completed_onboarding = EXCLUDED.completed_onboarding,
         updated_at = NOW()
       RETURNING *;
     `;
