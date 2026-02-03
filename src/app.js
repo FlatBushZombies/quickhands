@@ -8,6 +8,7 @@ import authRoutes from '#routes/auth.routes.js';
 import jobsRoutes from '#routes/jobs.routes.js';
 import userRoutes from '#routes/user.routes.js';
 import notificationsRoutes from '#routes/notifications.routes.js';
+import applicationsRoutes from '#routes/applications.routes.js';
 import { securityMiddleware } from '#middleware/security.middleware.js';
 import { clerkAuth } from '#middleware/clerk.middleware.js';
 
@@ -52,6 +53,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/applications', applicationsRoutes);
 
 export default app;
 

@@ -4,7 +4,8 @@ export default {
     schema: [
         './src/models/user.model.js',
         './src/models/job.model.js',
-        './src/models/notification.model.js'
+        './src/models/notification.model.js',
+        './src/models/application.model.js'
     ],
     out: './drizzle',
     dialect: 'postgresql',

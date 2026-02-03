@@ -1,0 +1,252 @@
+import {
+  createApplication,
+  getApplicationsByJobId,
+  getApplicationsByFreelancerId,
+  updateApplicationStatus,
+} from "#services/application.service.js";
+import { getJobById } from "#services/jobs.service.js";
+import { createNotification } from "#services/notifications.service.js";
+import { emitToUser } from "#config/socket.js";
+import logger from "#config/logger.js";
+
+/**
+ * Apply to a job
+ * POST /api/jobs/:id/apply
+ */
+export async function applyToJob(req, res) {
+  try {
+    const { id: jobId } = req.params;
+    const { userId, userName, userEmail } = req.body;
+
+    // Validate required fields
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    // Check if job exists
+    const job = await getJobById(jobId);
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: "Job not found",
+      });
+    }
+
+    // Prevent applying to own job
+    if (job.clerkId === userId) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot apply to your own job",
+      });
+    }
+
+    // Create application
+    const application = await createApplication({
+      jobId: Number(jobId),
+      freelancerClerkId: userId,
+      freelancerName: userName || "Freelancer",
+      freelancerEmail: userEmail || null,
+    });
+
+    // Create notification for the client
+    try {
+      const message = `${userName || "A freelancer"} applied to your job: ${job.serviceType}`;
+      const notification = await createNotification({
+        userId: job.clerkId,
+        jobId: Number(jobId),
+        message,
+      });
+
+      // Emit real-time notification to client
+      emitToUser(job.clerkId, "notification:new", {
+        notification: {
+          ...notification,
+          application: {
+            id: application.id,
+            freelancerName: application.freelancerName,
+            freelancerEmail: application.freelancerEmail,
+            createdAt: application.createdAt,
+          },
+        },
+      });
+
+      logger.info(`Notification sent to client ${job.clerkId} for application ${application.id}`);
+    } catch (notifError) {
+      logger.error("Error sending notification:", notifError);
+      // Don't fail the request if notification fails
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Application submitted successfully",
+      data: application,
+    });
+  } catch (error) {
+    logger.error("Error applying to job:", error);
+    
+    // Handle duplicate application error
+    if (error.message.includes("already applied")) {
+      return res.status(409).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to submit application",
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Get all applications for a job (for job owner/client)
+ * GET /api/jobs/:id/applications
+ */
+export async function getJobApplications(req, res) {
+  try {
+    const { id: jobId } = req.params;
+    const { user } = req;
+
+    // Check if job exists
+    const job = await getJobById(jobId);
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: "Job not found",
+      });
+    }
+
+    // Verify user owns this job
+    if (user?.clerkId !== job.clerkId) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to view these applications",
+      });
+    }
+
+    const applications = await getApplicationsByJobId(jobId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Applications retrieved successfully",
+      data: applications,
+    });
+  } catch (error) {
+    logger.error("Error fetching job applications:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve applications",
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Get all applications submitted by the current user (freelancer)
+ * GET /api/applications/my
+ */
+export async function getMyApplications(req, res) {
+  try {
+    const { user } = req;
+
+    if (!user?.clerkId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const applications = await getApplicationsByFreelancerId(user.clerkId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Your applications retrieved successfully",
+      data: applications,
+    });
+  } catch (error) {
+    logger.error("Error fetching user applications:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve your applications",
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Update application status (accept/reject)
+ * PATCH /api/applications/:id/status
+ */
+export async function updateApplicationStatusController(req, res) {
+  try {
+    const { id: applicationId } = req.params;
+    const { status } = req.body;
+    const { user } = req;
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: "Status is required",
+      });
+    }
+
+    // Get application details
+    const { getApplicationById } = await import("#services/application.service.js");
+    const application = await getApplicationById(applicationId);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: "Application not found",
+      });
+    }
+
+    // Get job to verify ownership
+    const job = await getJobById(application.jobId);
+    if (user?.clerkId !== job.clerkId) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to update this application",
+      });
+    }
+
+    const updatedApplication = await updateApplicationStatus(applicationId, status);
+
+    // Notify freelancer about status change
+    try {
+      const statusMessage = status === 'accepted' 
+        ? `Your application for "${job.serviceType}" has been accepted!`
+        : `Your application for "${job.serviceType}" has been rejected`;
+      
+      const notification = await createNotification({
+        userId: application.freelancerClerkId,
+        jobId: application.jobId,
+        message: statusMessage,
+      });
+
+      emitToUser(application.freelancerClerkId, "notification:new", {
+        notification,
+      });
+    } catch (notifError) {
+      logger.error("Error sending status notification:", notifError);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Application status updated successfully",
+      data: updatedApplication,
+    });
+  } catch (error) {
+    logger.error("Error updating application status:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update application status",
+      error: error.message,
+    });
+  }
+}
