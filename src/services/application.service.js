@@ -173,3 +173,32 @@ export async function getApplicationById(applicationId) {
     throw error;
   }
 }
+
+/**
+ * Get all applications (for debugging)
+ */
+export async function getAllApplications() {
+  try {
+    const result = await sql`
+      SELECT 
+        a.*,
+        sr.service_type,
+        sr.clerk_id as job_clerk_id,
+        sr.user_name as job_owner_name
+      FROM job_applications a
+      JOIN service_request sr ON a.job_id = sr.id
+      ORDER BY a.created_at DESC;
+    `;
+
+    logger.info(`Retrieved ${result.length} total applications`);
+    return result.map(app => ({
+      ...transformApplication(app),
+      jobServiceType: app.service_type,
+      jobClerkId: app.job_clerk_id,
+      jobOwnerName: app.job_owner_name,
+    }));
+  } catch (error) {
+    logger.error('Error fetching all applications:', error);
+    throw error;
+  }
+}

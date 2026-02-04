@@ -45,8 +45,9 @@ export async function getJob(req, res) {
  */
 export async function getJobs(req, res) {
   try {
-    const jobs = await getAllJobs();
-    logger.info("Successfully retrieved all job requests");
+    const { clerkId } = req.query;
+    const jobs = await getAllJobs(clerkId);
+    logger.info(`Successfully retrieved ${clerkId ? 'user' : 'all'} job requests`);
     return res.status(200).json({
       success: true,
       message: "Service requests fetched successfully",

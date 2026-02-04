@@ -46,26 +46,52 @@ export async function getJobById(jobId) {
   }
 }
 
-export async function getAllJobs() {
+export async function getAllJobs(clerkId = null) {
   try {
-    const result = await sql`
-      SELECT
-        id,
-        service_type,
-        selected_services,
-        start_date,
-        end_date,
-        max_price,
-        specialist_choice,
-        additional_info,
-        documents,
-        clerk_id,
-        user_name,
-        user_avatar,
-        created_at
-      FROM service_request
-      ORDER BY created_at DESC;
-    `;
+    let result;
+    
+    if (clerkId) {
+      // Filter by specific user's jobs
+      result = await sql`
+        SELECT
+          id,
+          service_type,
+          selected_services,
+          start_date,
+          end_date,
+          max_price,
+          specialist_choice,
+          additional_info,
+          documents,
+          clerk_id,
+          user_name,
+          user_avatar,
+          created_at
+        FROM service_request
+        WHERE clerk_id = ${clerkId}
+        ORDER BY created_at DESC;
+      `;
+    } else {
+      // Get all jobs
+      result = await sql`
+        SELECT
+          id,
+          service_type,
+          selected_services,
+          start_date,
+          end_date,
+          max_price,
+          specialist_choice,
+          additional_info,
+          documents,
+          clerk_id,
+          user_name,
+          user_avatar,
+          created_at
+        FROM service_request
+        ORDER BY created_at DESC;
+      `;
+    }
 
     logger.info(`Fetched ${result.length} service requests successfully`);
     logger.debug("getAllJobs raw result:", result);

@@ -3,6 +3,7 @@ import {
   getApplicationsByJobId,
   getApplicationsByFreelancerId,
   updateApplicationStatus,
+  getAllApplications,
 } from "#services/application.service.js";
 import { getJobById } from "#services/jobs.service.js";
 import { createNotification } from "#services/notifications.service.js";
@@ -18,8 +19,11 @@ export async function applyToJob(req, res) {
     const { id: jobId } = req.params;
     const { userId, userName, userEmail } = req.body;
 
+    logger.info(`[Apply] New application attempt - JobID: ${jobId}, User: ${userId} (${userName})`);
+
     // Validate required fields
     if (!userId) {
+      logger.warn(`[Apply] Missing userId in application request for job ${jobId}`);
       return res.status(400).json({
         success: false,
         message: "User ID is required",
@@ -29,11 +33,14 @@ export async function applyToJob(req, res) {
     // Check if job exists
     const job = await getJobById(jobId);
     if (!job) {
+      logger.warn(`[Apply] Job ${jobId} not found`);
       return res.status(404).json({
         success: false,
         message: "Job not found",
       });
     }
+    
+    logger.info(`[Apply] Job found - ${job.serviceType}, Owner: ${job.clerkId}`);
 
     // Prevent applying to own job
     if (job.clerkId === userId) {
@@ -44,14 +51,17 @@ export async function applyToJob(req, res) {
     }
 
     // Create application
+    logger.info(`[Apply] Creating application record...`);
     const application = await createApplication({
       jobId: Number(jobId),
       freelancerClerkId: userId,
       freelancerName: userName || "Freelancer",
       freelancerEmail: userEmail || null,
     });
+    logger.info(`[Apply] Application created successfully - ID: ${application.id}`);
 
     // Create notification for the client
+    logger.info(`[Apply] Sending notification to client ${job.clerkId}...`);
     try {
       const message = `${userName || "A freelancer"} applied to your job: ${job.serviceType}`;
       const notification = await createNotification({
@@ -112,17 +122,23 @@ export async function getJobApplications(req, res) {
     const { id: jobId } = req.params;
     const { user } = req;
 
+    logger.info(`[GetApps] Fetching applications for job ${jobId}, User: ${user?.clerkId}`);
+
     // Check if job exists
     const job = await getJobById(jobId);
     if (!job) {
+      logger.warn(`[GetApps] Job ${jobId} not found`);
       return res.status(404).json({
         success: false,
         message: "Job not found",
       });
     }
 
+    logger.info(`[GetApps] Job found - ${job.serviceType}, Owner: ${job.clerkId}`);
+
     // Verify user owns this job
     if (user?.clerkId !== job.clerkId) {
+      logger.warn(`[GetApps] Permission denied - User ${user?.clerkId} does not own job ${jobId}`);
       return res.status(403).json({
         success: false,
         message: "You do not have permission to view these applications",
@@ -130,6 +146,7 @@ export async function getJobApplications(req, res) {
     }
 
     const applications = await getApplicationsByJobId(jobId);
+    logger.info(`[GetApps] Found ${applications.length} applications for job ${jobId}`);
 
     return res.status(200).json({
       success: true,
@@ -137,7 +154,7 @@ export async function getJobApplications(req, res) {
       data: applications,
     });
   } catch (error) {
-    logger.error("Error fetching job applications:", error);
+    logger.error(`[GetApps] Error fetching job applications for job ${req.params.id}:`, error);
     return res.status(500).json({
       success: false,
       message: "Failed to retrieve applications",
@@ -246,6 +263,31 @@ export async function updateApplicationStatusController(req, res) {
     return res.status(500).json({
       success: false,
       message: "Failed to update application status",
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Get all applications (debug endpoint)
+ * GET /api/applications/all
+ */
+export async function getAllApplicationsController(req, res) {
+  try {
+    const applications = await getAllApplications();
+    logger.info(`Retrieved ${applications.length} total applications for debugging`);
+    
+    return res.status(200).json({
+      success: true,
+      message: "All applications retrieved successfully",
+      data: applications,
+      count: applications.length,
+    });
+  } catch (error) {
+    logger.error("Error fetching all applications:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve applications",
       error: error.message,
     });
   }
