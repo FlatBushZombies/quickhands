@@ -97,11 +97,13 @@ export async function applyToJob(req, res) {
   } catch (error) {
     logger.error("Error applying to job:", error);
     
-    // Handle duplicate application error
+    // Handle duplicate application error - return success to avoid user confusion
     if (error.message.includes("already applied")) {
-      return res.status(409).json({
-        success: false,
-        message: error.message,
+      logger.info(`[Apply] User ${userId} attempted duplicate application to job ${jobId}`);
+      return res.status(200).json({
+        success: true,
+        message: "You have already applied to this job",
+        alreadyApplied: true,
       });
     }
 
