@@ -202,3 +202,49 @@ export async function getAllApplications() {
     throw error;
   }
 }
+
+/**
+ * Get all applications for jobs owned by a client
+ */
+export async function getApplicationsForClient(clerkId) {
+  try {
+    const result = await sql`
+      SELECT 
+        a.*,
+        sr.id as job_id,
+        sr.service_type,
+        sr.max_price,
+        sr.start_date,
+        sr.end_date
+      FROM job_applications a
+      JOIN service_request sr ON a.job_id = sr.id
+      WHERE sr.clerk_id = ${clerkId}
+      ORDER BY a.created_at DESC;
+    `;
+
+    logger.info(`Retrieved ${result.length} applications for client ${clerkId}`);
+    
+    // Group by job
+    const jobsMap = new Map();
+    result.forEach(app => {
+      const jobId = app.job_id;
+      if (!jobsMap.has(jobId)) {
+        jobsMap.set(jobId, {
+          id: jobId,
+          serviceType: app.service_type,
+          maxPrice: Number(app.max_price) || 0,
+          startDate: app.start_date,
+          endDate: app.end_date,
+          applications: []
+        });
+      }
+      
+      jobsMap.get(jobId).applications.push(transformApplication(app));
+    });
+
+    return Array.from(jobsMap.values());
+  } catch (error) {
+    logger.error(`Error fetching applications for client ${clerkId}:`, error);
+    throw error;
+  }
+}

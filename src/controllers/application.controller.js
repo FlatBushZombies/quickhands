@@ -4,6 +4,7 @@ import {
   getApplicationsByFreelancerId,
   updateApplicationStatus,
   getAllApplications,
+  getApplicationsForClient,
 } from "#services/application.service.js";
 import { getJobById } from "#services/jobs.service.js";
 import { createNotification } from "#services/notifications.service.js";
@@ -287,6 +288,40 @@ export async function getAllApplicationsController(req, res) {
     });
   } catch (error) {
     logger.error("Error fetching all applications:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve applications",
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Get applications for client's jobs (simplified endpoint)
+ * GET /api/applications/client
+ */
+export async function getClientApplicationsController(req, res) {
+  try {
+    const { user } = req;
+
+    if (!user?.clerkId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    logger.info(`[ClientApps] Fetching applications for client ${user.clerkId}`);
+    const jobsWithApplications = await getApplicationsForClient(user.clerkId);
+    logger.info(`[ClientApps] Found ${jobsWithApplications.length} jobs with applications`);
+
+    return res.status(200).json({
+      success: true,
+      message: "Applications retrieved successfully",
+      data: jobsWithApplications,
+    });
+  } catch (error) {
+    logger.error("Error fetching client applications:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to retrieve applications",
