@@ -13,6 +13,8 @@ function transformApplication(app) {
     freelancerClerkId: app.freelancer_clerk_id,
     freelancerName: app.freelancer_name,
     freelancerEmail: app.freelancer_email,
+    quotation: app.quotation,
+    conditions: app.conditions,
     status: app.status,
     createdAt: app.created_at,
     updatedAt: app.updated_at,
@@ -28,6 +30,8 @@ export async function createApplication(applicationData) {
     freelancerClerkId,
     freelancerName,
     freelancerEmail,
+    quotation,
+    conditions,
   } = applicationData;
 
   try {
@@ -48,13 +52,17 @@ export async function createApplication(applicationData) {
         job_id, 
         freelancer_clerk_id, 
         freelancer_name, 
-        freelancer_email
+        freelancer_email,
+        quotation,
+        conditions
       )
       VALUES (
         ${jobId},
         ${freelancerClerkId},
         ${freelancerName},
-        ${freelancerEmail}
+        ${freelancerEmail},
+        ${quotation},
+        ${conditions}
       )
       RETURNING *;
     `;

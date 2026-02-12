@@ -18,7 +18,7 @@ import logger from "#config/logger.js";
 export async function applyToJob(req, res) {
   try {
     const { id: jobId } = req.params;
-    const { userId, userName, userEmail } = req.body;
+    const { userId, userName, userEmail, quotation, conditions } = req.body;
 
     logger.info(`[Apply] New application attempt - JobID: ${jobId}, User: ${userId} (${userName})`);
 
@@ -51,6 +51,17 @@ export async function applyToJob(req, res) {
       });
     }
 
+    // Check if job already has 5 applications
+    const existingApplications = await getApplicationsByJobId(jobId);
+    if (existingApplications.length >= 5) {
+      logger.warn(`[Apply] Job ${jobId} already has 5 applications. Rejecting new application.`);
+      return res.status(400).json({
+        success: false,
+        message: "This job already has the maximum number of applications (5). Better luck next time!",
+        limitReached: true,
+      });
+    }
+
     // Create application
     logger.info(`[Apply] Creating application record...`);
     const application = await createApplication({
@@ -58,6 +69,8 @@ export async function applyToJob(req, res) {
       freelancerClerkId: userId,
       freelancerName: userName || "Freelancer",
       freelancerEmail: userEmail || null,
+      quotation: quotation || null,
+      conditions: conditions || null,
     });
     logger.info(`[Apply] Application created successfully - ID: ${application.id}`);
 
