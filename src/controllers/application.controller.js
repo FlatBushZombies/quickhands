@@ -74,8 +74,8 @@ export async function applyToJob(req, res) {
     });
     logger.info(`[Apply] Application created successfully - ID: ${application.id}`);
 
-    // Create notification for the client
-    logger.info(`[Apply] Sending notification to client ${job.clerkId}...`);
+    // Create notification for the client (non-blocking)
+    logger.info(`[Apply] Creating notification for client ${job.clerkId}...`);
     try {
       const message = `${userName || "A freelancer"} applied to your job: ${job.serviceType}`;
       const notification = await createNotification({
@@ -84,22 +84,27 @@ export async function applyToJob(req, res) {
         message,
       });
 
-      // Emit real-time notification to client
-      emitToUser(job.clerkId, "notification:new", {
-        notification: {
-          ...notification,
-          application: {
-            id: application.id,
-            freelancerName: application.freelancerName,
-            freelancerEmail: application.freelancerEmail,
-            createdAt: application.createdAt,
+      logger.info(`[Apply] Notification created successfully - ID: ${notification.id}`);
+      
+      // Try to emit via Socket.IO (may fail if not connected, that's ok)
+      try {
+        emitToUser(job.clerkId, "notification:new", {
+          notification: {
+            ...notification,
+            application: {
+              id: application.id,
+              freelancerName: application.freelancerName,
+              freelancerEmail: application.freelancerEmail,
+              createdAt: application.createdAt,
+            },
           },
-        },
-      });
-
-      logger.info(`Notification sent to client ${job.clerkId} for application ${application.id}`);
+        });
+        logger.info(`[Apply] Socket emission attempted for client ${job.clerkId}`);
+      } catch (socketError) {
+        logger.warn(`[Apply] Socket emission failed (OK - client will poll):`, socketError.message);
+      }
     } catch (notifError) {
-      logger.error("Error sending notification:", notifError);
+      logger.error("[Apply] Error creating notification:", notifError);
       // Don't fail the request if notification fails
     }
 

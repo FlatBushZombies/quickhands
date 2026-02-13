@@ -58,17 +58,25 @@ export function getIO() {
 
 export function emitToUser(userId, event, payload) {
   try {
+    // Check if Socket.IO is initialized
+    if (!ioInstance) {
+      logger.warn(`Socket.IO not initialized, skipping emit for userId=${userId}`);
+      return;
+    }
+
     const uid = String(userId);
     const set = userSockets.get(uid);
     if (!set || set.size === 0) {
       logger.info(`No active sockets for userId=${uid}, skipping emit for event=${event}`);
       return;
     }
+    
     for (const socketId of set) {
-      getIO().to(socketId).emit(event, payload);
+      ioInstance.to(socketId).emit(event, payload);
     }
     logger.info(`Emitted event=${event} to userId=${uid} on ${set.size} sockets`);
   } catch (e) {
-    logger.error('emitToUser error', e);
+    logger.warn(`emitToUser error (non-fatal): ${e.message}`);
+    // Don't throw - this is not critical since we use polling
   }
 }
