@@ -47,25 +47,51 @@ export async function createApplication(applicationData) {
       throw new Error("You have already applied to this job");
     }
 
-    const result = await sql`
-      INSERT INTO job_applications (
-        job_id, 
-        freelancer_clerk_id, 
-        freelancer_name, 
-        freelancer_email,
-        quotation,
-        conditions
-      )
-      VALUES (
-        ${jobId},
-        ${freelancerClerkId},
-        ${freelancerName},
-        ${freelancerEmail},
-        ${quotation},
-        ${conditions}
-      )
-      RETURNING *;
-    `;
+    // Try with quotation/conditions first, fallback if columns don't exist
+    let result;
+    try {
+      result = await sql`
+        INSERT INTO job_applications (
+          job_id, 
+          freelancer_clerk_id, 
+          freelancer_name, 
+          freelancer_email,
+          quotation,
+          conditions
+        )
+        VALUES (
+          ${jobId},
+          ${freelancerClerkId},
+          ${freelancerName},
+          ${freelancerEmail},
+          ${quotation},
+          ${conditions}
+        )
+        RETURNING *;
+      `;
+    } catch (insertError) {
+      // If error mentions undefined column, try without quotation/conditions
+      if (insertError.message.includes('column') || insertError.message.includes('does not exist')) {
+        logger.warn('Quotation/conditions columns not found, inserting without them. Run migration!');
+        result = await sql`
+          INSERT INTO job_applications (
+            job_id, 
+            freelancer_clerk_id, 
+            freelancer_name, 
+            freelancer_email
+          )
+          VALUES (
+            ${jobId},
+            ${freelancerClerkId},
+            ${freelancerName},
+            ${freelancerEmail}
+          )
+          RETURNING *;
+        `;
+      } else {
+        throw insertError;
+      }
+    }
 
     logger.info(`Application created: id=${result[0].id}, jobId=${jobId}, freelancer=${freelancerClerkId}`);
     return transformApplication(result[0]);

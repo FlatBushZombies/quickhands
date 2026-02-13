@@ -9,6 +9,7 @@ import jobsRoutes from '#routes/jobs.routes.js';
 import userRoutes from '#routes/user.routes.js';
 import notificationsRoutes from '#routes/notifications.routes.js';
 import applicationsRoutes from '#routes/applications.routes.js';
+import testRoutes from '#routes/test.routes.js';
 import { securityMiddleware } from '#middleware/security.middleware.js';
 import { clerkAuth } from '#middleware/clerk.middleware.js';
 
@@ -54,6 +55,7 @@ app.use('/api/jobs', jobsRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/applications', applicationsRoutes);
+app.use('/api/test', testRoutes);
 
 export default app;
 
