@@ -78,13 +78,16 @@ export async function createJobController(req, res) {
       specialistChoice,
       additionalInfo,
       documents,
+      clerkId: bodyClerkId,
+      userName: bodyUserName,
+      userAvatar: bodyUserAvatar,
     } = req.body;
 
-    // Clerk middleware attaches this
+    // Prioritize body data over middleware (client sends correct Clerk info)
     const { user } = req;
-    const clerkId = user?.clerkId;
-    const userName = user?.userName || "Anonymous";
-    const userAvatar = user?.userAvatar || null;
+    const clerkId = bodyClerkId || user?.clerkId;
+    const userName = bodyUserName || user?.userName || "Anonymous";
+    const userAvatar = bodyUserAvatar !== undefined ? bodyUserAvatar : (user?.userAvatar || null);
 
     if (!serviceType || !startDate || !endDate) {
       return res.status(400).json({
@@ -162,8 +165,11 @@ export async function createJobController(req, res) {
  */
 export async function searchJobsController(req, res) {
   try {
+    // Handle both 'q' (general query) and specific filters
+    const queryParam = req.query.q;
+    
     const filters = {
-      serviceType: req.query.serviceType,
+      serviceType: req.query.serviceType || queryParam, // Use 'q' as serviceType if provided
       selectedService: req.query.selectedService,
       startDate: req.query.startDate,
       endDate: req.query.endDate,
