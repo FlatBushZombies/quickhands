@@ -12,17 +12,18 @@ import applicationsRoutes from '#routes/applications.routes.js';
 import testRoutes from '#routes/test.routes.js';
 import { securityMiddleware } from '#middleware/security.middleware.js';
 import { clerkAuth } from '#middleware/clerk.middleware.js';
+import { corsOriginCallback } from '#config/cors.js';
 
 const app = express();
 
 app.use(helmet());
-app.use(cors(
-  {
-  origin: ['http://localhost:8081', 'http://localhost:19006'], // add your dev URLs
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  credentials: true,
-  }
-))
+app.use(
+  cors({
+    origin: corsOriginCallback,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({extended: true}));
 app.use(cookieParser())
