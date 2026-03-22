@@ -1,50 +1,76 @@
-# Real-time messaging (Socket.IO) — React Native
+# Real-time messaging (Socket.IO) — React Native + Clerk
 
-This backend exposes two-way chat over **Socket.IO**. Conversations are identified by **UUID v4** strings. **CORS** is shared with Express via `CLIENT_ORIGINS` (comma-separated). React Native clients often send **no `Origin` header**; that case is allowed so native apps can connect.
+## Why you see “socket not connected” on Vercel
+
+The API at [https://quickhands-api.vercel.app/](https://quickhands-api.vercel.app/) is deployed as **Vercel serverless functions**. Socket.IO needs a **long‑lived HTTP server** and sticky connections; **serverless invocations do not keep WebSocket / Engine.IO sessions alive** between requests, so connections fail or drop even if routes point at `api/index.js`.
+
+**What to do**
+
+1. **Run the same Node app on a long‑running host** (e.g. [Railway](https://railway.app/), [Render](https://render.com/), [Fly.io](https://fly.io/), a VPS) using `node src/index.js` (or your start command), and set **`EXPO_PUBLIC_SOCKET_URL`** (and API URL) to that origin **without a trailing slash**, e.g. `https://your-socket-host.example.com`.
+2. Keep **REST + DB** on Vercel if you want; only the **Socket.IO process** must be on a traditional server.
+3. For local dev, `npm run dev` works; use your LAN IP from a device, not `localhost`.
+
+Until you deploy sockets separately, expect **`connect_error`** / **`missing_auth_token`** / disconnects against the Vercel URL.
+
+---
+
+## REST API (Clerk Bearer token)
+
+Use the same **`Authorization: Bearer <Clerk JWT>`** as your other protected routes.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/messaging/users?q=&limit=` | List registered users (excludes you); optional search on name/email |
+| `GET` | `/api/messaging/conversation-with/:otherClerkId` | Returns **`conversationId`** (deterministic UUID v5 for the pair) and **`otherUser`** |
+
+Flow: list users → pick one → call **`conversation-with/:otherClerkId`** → open chat with returned **`conversationId`**.
+
+---
+
+## Socket.IO auth (required)
+
+Connections **must** send a **Clerk session JWT** (not `userId` in query):
+
+```ts
+io(serverUrl, {
+  auth: { token: await getToken() },
+  transports: ['websocket', 'polling'],
+});
+```
+
+Optional dev-only bypass: set **`ALLOW_SOCKET_QUERY_USER=true`** on the server and pass **`query: { userId }`** — **do not use in production**.
+
+---
 
 ## Server contract
 
 | Item | Value |
 |------|--------|
-| Transport | Polling + WebSocket (`socket.io-client` default) |
-| Auth (current) | `userId` passed as **query** when connecting: `?userId=<your-user-id>` |
-| Room naming | Internal: `conv:<conversationId>` — you only use `conversationId` in payloads |
+| Transport | Polling + WebSocket |
+| Auth | **`auth.token`** = Clerk JWT (`sub` = Clerk user id) |
+| `conversationId` | Any standard **UUID** (DM ids from the API are **v5**) |
+| Room (internal) | `conv:<conversationId>` |
 
-### Client → server events
+### Client → server
 
-1. **`join_conversation`** — `{ conversationId: string /* UUID v4 */ }`  
-   - Optional **ack**: `(err, { conversationId, room }) => void`
+- **`join_conversation`** — `{ conversationId }` — ack `(err, { conversationId, room })`
+- **`leave_conversation`** — `{ conversationId }`
+- **`send_message`** — `{ conversationId, text, clientMessageId? }`
 
-2. **`leave_conversation`** — `{ conversationId: string }`  
-   - Optional ack: `(err, { conversationId }) => void`
+### Server → client
 
-3. **`send_message`** — `{ conversationId: string, text: string, clientMessageId?: string /* UUID v4 */ }`  
-   - Optional ack: `(err, message) => void` — `message` includes server `id` and `createdAt`
+- **`message`** — `{ id, conversationId, senderId, text, createdAt, clientMessageId? }` — `senderId` is the Clerk user id
 
-### Server → client events
+### Environment (backend)
 
-- **`message`** — payload shape:
-
-```json
-{
-  "id": "uuid",
-  "conversationId": "uuid",
-  "senderId": "same as query userId",
-  "text": "string",
-  "createdAt": "ISO-8601",
-  "clientMessageId": "optional, echoed if valid uuid"
-}
-```
-
-### Environment
-
-- **`CLIENT_ORIGINS`**: comma-separated list of allowed browser/dev origins (e.g. Expo web). Use `*` to allow any origin (dev only). Requests with **no** origin (typical for React Native) are still allowed when not using `*`.
+- **`CLIENT_ORIGINS`**: comma-separated origins for browser/Expo web; React Native often sends **no** `Origin` (still allowed).
+- **`CLERK_SECRET_KEY`**: required to verify socket JWTs.
 
 ### Connection URL
 
-Use your API base **without** a path (Socket.IO attaches to the HTTP server root), for example:
+Use the **socket host base URL** with **no trailing slash**:
 
-`http://192.168.1.10:3000` or `https://api.example.com`
+`https://your-api.example.com` — Socket.IO uses path `/socket.io` automatically.
 
 ---
 
@@ -54,11 +80,13 @@ Use your API base **without** a path (Socket.IO attaches to the HTTP server root
 npm install socket.io-client
 ```
 
+Use **`@clerk/clerk-expo`** (or your Clerk RN SDK) for **`getToken`**.
+
 ---
 
 ## Hook: `useMessagingSocket`
 
-Create `hooks/useMessagingSocket.ts` (adjust paths and `User` type to your app):
+`hooks/useMessagingSocket.ts`:
 
 ```typescript
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -74,16 +102,16 @@ export type ServerMessage = {
 };
 
 type Options = {
-  /** e.g. process.env.EXPO_PUBLIC_API_URL or 'http://192.168.x.x:3000' */
+  /** Long-running Node host (not Vercel serverless for production) */
   serverUrl: string;
-  userId: string;
+  getToken: () => Promise<string | null>;
   conversationId: string;
   enabled?: boolean;
 };
 
 export function useMessagingSocket({
   serverUrl,
-  userId,
+  getToken,
   conversationId,
   enabled = true,
 }: Options) {
@@ -93,46 +121,57 @@ export function useMessagingSocket({
   const [lastError, setLastError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!enabled || !userId || !conversationId) return;
+    if (!enabled || !conversationId) return;
 
-    const socket = io(serverUrl, {
-      query: { userId },
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-    });
+    let cancelled = false;
+    let socket: Socket | null = null;
 
-    socketRef.current = socket;
+    (async () => {
+      const token = await getToken();
+      if (!token || cancelled) {
+        setLastError('Not signed in');
+        return;
+      }
 
-    socket.on('connect', () => {
-      setConnected(true);
-      setLastError(null);
-      socket.emit('join_conversation', { conversationId }, (err: unknown) => {
-        if (err) setLastError(JSON.stringify(err));
+      socket = io(serverUrl, {
+        auth: { token },
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000,
       });
-    });
 
-    socket.on('disconnect', () => setConnected(false));
+      socketRef.current = socket;
 
-    socket.on('connect_error', (e) => {
-      setLastError(e.message);
-    });
-
-    socket.on('message', (msg: ServerMessage) => {
-      setMessages((prev) => {
-        const next = [...prev, msg];
-        return next;
+      socket.on('connect', () => {
+        setConnected(true);
+        setLastError(null);
+        socket!.emit('join_conversation', { conversationId }, (err: unknown) => {
+          if (err) setLastError(JSON.stringify(err));
+        });
       });
-    });
+
+      socket.on('disconnect', () => setConnected(false));
+
+      socket.on('connect_error', (e: Error) => {
+        setLastError(e.message);
+      });
+
+      socket.on('message', (msg: ServerMessage) => {
+        setMessages((prev) => [...prev, msg]);
+      });
+    })();
 
     return () => {
-      socket.emit('leave_conversation', { conversationId });
-      socket.removeAllListeners();
-      socket.close();
+      cancelled = true;
+      if (socket) {
+        socket.emit('leave_conversation', { conversationId });
+        socket.removeAllListeners();
+        socket.close();
+      }
       socketRef.current = null;
     };
-  }, [serverUrl, userId, conversationId, enabled]);
+  }, [serverUrl, getToken, conversationId, enabled]);
 
   const sendMessage = useCallback(
     (text: string, clientMessageId?: string) => {
@@ -144,7 +183,7 @@ export function useMessagingSocket({
       s.emit(
         'send_message',
         { conversationId, text, ...(clientMessageId ? { clientMessageId } : {}) },
-        (err: unknown, _msg: ServerMessage) => {
+        (err: unknown) => {
           if (err) setLastError(JSON.stringify(err));
         }
       );
@@ -158,9 +197,211 @@ export function useMessagingSocket({
 
 ---
 
+## Hook: `useMessagingUsers`
+
+`hooks/useMessagingUsers.ts`:
+
+```typescript
+import { useCallback, useEffect, useState } from 'react';
+
+export type ChatUser = {
+  clerkId: string;
+  displayName: string;
+  email: string;
+  imageUrl: string | null;
+  skills: string | null;
+};
+
+type Options = {
+  apiUrl: string;
+  getToken: () => Promise<string | null>;
+};
+
+export function useMessagingUsers({ apiUrl, getToken }: Options) {
+  const [users, setUsers] = useState<ChatUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError('Not signed in');
+        return;
+      }
+      const base = apiUrl.replace(/\/$/, '');
+      const res = await fetch(`${base}/api/messaging/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to load users');
+      setUsers(data.users || []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error');
+    } finally {
+      setLoading(false);
+    }
+  }, [apiUrl, getToken]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  return { users, loading, error, refresh };
+}
+```
+
+---
+
+## Screen: `ChatUsersScreen`
+
+Pick a user, resolve `conversationId`, navigate to chat.
+
+`screens/ChatUsersScreen.tsx`:
+
+```tsx
+import React, { useCallback, useState } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  Pressable,
+  ActivityIndicator,
+  StyleSheet,
+  TextInput,
+} from 'react-native';
+import { useAuth } from '@clerk/clerk-expo';
+
+const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? '').replace(/\/$/, '');
+
+type Props = {
+  onOpenChat: (params: {
+    conversationId: string;
+    otherUser: { clerkId: string; displayName: string };
+  }) => void;
+};
+
+export function ChatUsersScreen({ onOpenChat }: Props) {
+  const { getToken } = useAuth();
+  const [q, setQ] = useState('');
+  const [users, setUsers] = useState<
+    { clerkId: string; displayName: string; email: string }[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setErr('Not signed in');
+        return;
+      }
+      const qs = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
+      const res = await fetch(`${API_URL}/api/messaging/users${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to load');
+      setUsers(data.users || []);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Error');
+    } finally {
+      setLoading(false);
+    }
+  }, [getToken, q]);
+
+  React.useEffect(() => {
+    load();
+  }, [load]);
+
+  const startChat = async (otherClerkId: string, displayName: string) => {
+    const token = await getToken();
+    if (!token) return;
+    const res = await fetch(
+      `${API_URL}/api/messaging/conversation-with/${encodeURIComponent(otherClerkId)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const data = await res.json();
+    if (!res.ok) {
+      setErr(data.message || 'Could not open chat');
+      return;
+    }
+    onOpenChat({
+      conversationId: data.conversationId,
+      otherUser: { clerkId: otherClerkId, displayName: data.otherUser?.displayName ?? displayName },
+    });
+  };
+
+  if (!API_URL) {
+    return (
+      <View style={styles.centered}>
+        <Text>Set EXPO_PUBLIC_API_URL</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Messages</Text>
+      <TextInput
+        style={styles.search}
+        placeholder="Search users"
+        value={q}
+        onChangeText={setQ}
+        onSubmitEditing={load}
+      />
+      {err ? <Text style={styles.err}>{err}</Text> : null}
+      {loading ? (
+        <ActivityIndicator />
+      ) : (
+        <FlatList
+          data={users}
+          keyExtractor={(item) => item.clerkId}
+          renderItem={({ item }) => (
+            <Pressable
+              style={styles.row}
+              onPress={() => startChat(item.clerkId, item.displayName)}
+            >
+              <Text style={styles.name}>{item.displayName}</Text>
+              <Text style={styles.sub}>{item.email}</Text>
+            </Pressable>
+          )}
+          ListEmptyComponent={<Text style={styles.empty}>No users yet</Text>}
+        />
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 16, paddingTop: 48 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  title: { fontSize: 22, fontWeight: '700', marginBottom: 12 },
+  search: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  row: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  name: { fontSize: 16, fontWeight: '600' },
+  sub: { fontSize: 13, color: '#666' },
+  err: { color: 'crimson', marginBottom: 8 },
+  empty: { textAlign: 'center', marginTop: 24, color: '#888' },
+});
+```
+
+---
+
 ## Screen: `ConversationChatScreen`
 
-Example `screens/ConversationChatScreen.tsx` using the hook (Expo / React Navigation style):
+Use **`EXPO_PUBLIC_SOCKET_URL`** when you deploy sockets separately; otherwise fall back to API URL for local dev.
 
 ```tsx
 import React, { useState } from 'react';
@@ -173,26 +414,37 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { randomUUID } from 'expo-crypto'; // or import { v4 as uuidv4 } from 'uuid';
+import { useAuth } from '@clerk/clerk-expo';
+import { randomUUID } from 'expo-crypto';
 import { useMessagingSocket } from '../hooks/useMessagingSocket';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? '').replace(/\/$/, '');
+const SOCKET_URL = (process.env.EXPO_PUBLIC_SOCKET_URL ?? API_URL).replace(/\/$/, '');
 
 type Props = {
-  userId: string;
-  conversationId: string; // UUID v4 shared by both participants (your app should agree on this)
+  clerkUserId: string;
+  conversationId: string;
+  otherDisplayName?: string;
 };
 
-export function ConversationChatScreen({ userId, conversationId }: Props) {
+export function ConversationChatScreen({
+  clerkUserId,
+  conversationId,
+  otherDisplayName,
+}: Props) {
+  const { getToken } = useAuth();
   const [draft, setDraft] = useState('');
+
   const { connected, messages, sendMessage, lastError } = useMessagingSocket({
-    serverUrl: API_URL,
-    userId,
+    serverUrl: SOCKET_URL,
+    getToken,
     conversationId,
+    enabled: !!SOCKET_URL,
   });
 
   return (
     <View style={styles.container}>
+      <Text style={styles.header}>{otherDisplayName ?? 'Chat'}</Text>
       <Text style={styles.status}>
         {connected ? 'Connected' : 'Connecting…'}
         {lastError ? ` — ${lastError}` : ''}
@@ -204,8 +456,8 @@ export function ConversationChatScreen({ userId, conversationId }: Props) {
         renderItem={({ item }) => (
           <View style={styles.row}>
             <Text style={styles.meta}>
-              {item.senderId === userId ? 'You' : item.senderId} ·{' '}
-              {new Date(item.createdAt).toLocaleTimeString()}
+              {item.senderId === clerkUserId ? 'You' : otherDisplayName ?? item.senderId}{' '}
+              · {new Date(item.createdAt).toLocaleTimeString()}
             </Text>
             <Text style={styles.text}>{item.text}</Text>
           </View>
@@ -245,6 +497,7 @@ export function ConversationChatScreen({ userId, conversationId }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 12, paddingTop: 48 },
+  header: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
   status: { fontSize: 12, marginBottom: 8, color: '#666' },
   row: { marginBottom: 12 },
   meta: { fontSize: 11, color: '#888' },
@@ -270,8 +523,11 @@ const styles = StyleSheet.create({
 });
 ```
 
-### Notes
+---
 
-1. **`conversationId`**: Both users must use the **same** UUID (e.g. created when a thread is opened or returned from your REST API). The server does not persist messages yet; it only routes by room.
-2. **LAN testing**: Use your machine’s LAN IP in `EXPO_PUBLIC_API_URL`, not `localhost`, when testing on a physical device.
-3. **`userId`**: Align with your backend user identifiers (e.g. Clerk `userId` or internal DB id) so `senderId` in events matches your app’s user model.
+## Checklist
+
+1. **Deploy Socket.IO** on a non-serverless host; point **`EXPO_PUBLIC_SOCKET_URL`** at it.
+2. **REST** can stay on Vercel — use **`EXPO_PUBLIC_API_URL=https://quickhands-api.vercel.app`** for `/api/messaging/*`.
+3. Pass **`auth: { token: await getToken() }`** on the socket; **`senderId`** will match **`user.id`** from Clerk.
+4. **Users must exist** in your `users` table (same flow as sign-up / `POST /api/user`) to appear in the list.

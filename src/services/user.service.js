@@ -119,3 +119,69 @@ export async function getUserByClerkId(clerkId) {
     throw new Error("Failed to retrieve user from database");
   }
 }
+
+function mapChatUserRow(row) {
+  return {
+    clerkId: row.clerk_id,
+    displayName: row.full_name || row.email || "User",
+    email: row.email,
+    imageUrl: row.image_url || null,
+    skills: row.skills || null,
+  };
+}
+
+/**
+ * List registered users for chat (excludes current Clerk user).
+ * @param {string} excludeClerkId
+ * @param {{ limit?: number, q?: string }} opts
+ */
+export async function listUsersForChat(excludeClerkId, opts = {}) {
+  const limit = Math.min(100, Math.max(1, Number(opts.limit) || 50));
+  const q = opts.q && String(opts.q).trim() ? String(opts.q).trim() : null;
+
+  try {
+    if (q) {
+      const pattern = `%${q}%`;
+      const result = await sql`
+        SELECT id, clerk_id, email, full_name, image_url, skills
+        FROM users
+        WHERE clerk_id != ${excludeClerkId}
+        AND (full_name ILIKE ${pattern} OR email ILIKE ${pattern})
+        ORDER BY COALESCE(full_name, '') ASC, email ASC
+        LIMIT ${limit}
+      `;
+      return result.map(mapChatUserRow);
+    }
+
+    const result = await sql`
+      SELECT id, clerk_id, email, full_name, image_url, skills
+      FROM users
+      WHERE clerk_id != ${excludeClerkId}
+      ORDER BY COALESCE(full_name, '') ASC, email ASC
+      LIMIT ${limit}
+    `;
+    return result.map(mapChatUserRow);
+  } catch (error) {
+    logger.error(`listUsersForChat error:`, error);
+    throw new Error("Failed to list users");
+  }
+}
+
+/**
+ * Minimal profile for messaging (uses DB column names from schema).
+ */
+export async function getUserChatSummary(clerkId) {
+  try {
+    const result = await sql`
+      SELECT clerk_id, email, full_name, image_url
+      FROM users
+      WHERE clerk_id = ${clerkId}
+      LIMIT 1
+    `;
+    if (result.length === 0) return null;
+    return mapChatUserRow(result[0]);
+  } catch (error) {
+    logger.error(`getUserChatSummary error for ${clerkId}:`, error);
+    throw new Error("Failed to load user");
+  }
+}

@@ -1,17 +1,19 @@
-import { Server as SocketIOServer } from 'socket.io';
-import { randomUUID } from 'node:crypto';
-import logger from '#config/logger.js';
-import { socketCorsOrigin } from '#config/cors.js';
+import { Server as SocketIOServer } from "socket.io";
+import { randomUUID } from "node:crypto";
+import { verifyToken } from "@clerk/clerk-sdk-node";
+import logger from "#config/logger.js";
+import { socketCorsOrigin } from "#config/cors.js";
 
 let ioInstance = null;
-/** @type {Map<string, Set<string>>} userId -> socket ids */
+/** @type {Map<string, Set<string>>} clerk user id -> socket ids */
 const userSockets = new Map();
 
-const UUID_V4 =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** RFC 4122 UUID (versions 1–5), used for conversations (v5 DMs) and client ids */
+const UUID_ANY =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function isUuidV4(value) {
-  return typeof value === 'string' && UUID_V4.test(value);
+function isUuid(value) {
+  return typeof value === "string" && UUID_ANY.test(value);
 }
 
 const MAX_MESSAGE_LENGTH = 8000;
@@ -24,82 +26,128 @@ export function initSocket(httpServer) {
   const io = new SocketIOServer(httpServer, {
     cors: {
       origin: socketCorsOrigin(),
-      methods: ['GET', 'POST', 'OPTIONS'],
+      methods: ["GET", "POST", "OPTIONS"],
       credentials: true,
     },
-    transports: ['polling', 'websocket'],
+    transports: ["polling", "websocket"],
     allowEIO3: true,
     pingTimeout: 60000,
     pingInterval: 25000,
   });
 
-  io.on('connection', (socket) => {
-    const { userId } = socket.handshake.query || {};
-    const uid = userId != null ? String(userId) : null;
+  io.use(async (socket, next) => {
+    const token =
+      socket.handshake.auth?.token ?? socket.handshake.query?.token;
+
+    if (token) {
+      try {
+        const payload = await verifyToken(String(token), {
+          secretKey: process.env.CLERK_SECRET_KEY,
+        });
+        socket.data.clerkUserId = payload.sub;
+        return next();
+      } catch (e) {
+        logger.warn(`Socket JWT rejected: ${e.message}`);
+        return next(new Error("invalid_auth_token"));
+      }
+    }
+
+    if (process.env.ALLOW_SOCKET_QUERY_USER === "true") {
+      const { userId } = socket.handshake.query || {};
+      if (userId) {
+        socket.data.clerkUserId = String(userId);
+        logger.warn("Socket using query userId (ALLOW_SOCKET_QUERY_USER=true only)");
+        return next();
+      }
+    }
+
+    return next(new Error("missing_auth_token"));
+  });
+
+  io.on("connection", (socket) => {
+    const uid = socket.data.clerkUserId ?? null;
 
     if (uid) {
       if (!userSockets.has(uid)) userSockets.set(uid, new Set());
       userSockets.get(uid).add(socket.id);
-      logger.info(`Socket connected userId=${uid} socketId=${socket.id}`);
+      logger.info(`Socket connected clerkUserId=${uid} socketId=${socket.id}`);
     } else {
-      logger.warn('Socket connected without userId (query.userId)');
+      logger.warn("Socket connected without clerkUserId");
     }
 
-    socket.on('join_conversation', (payload, ack) => {
+    socket.on("join_conversation", (payload, ack) => {
       if (!uid) {
-        const err = { code: 'UNAUTHORIZED', message: 'Missing userId on connection' };
-        if (typeof ack === 'function') ack(err);
+        const err = {
+          code: "UNAUTHORIZED",
+          message: "Missing authenticated user",
+        };
+        if (typeof ack === "function") ack(err);
         return;
       }
       const conversationId = payload?.conversationId;
-      if (!isUuidV4(conversationId)) {
-        const err = { code: 'INVALID_CONVERSATION', message: 'conversationId must be a UUID v4' };
-        if (typeof ack === 'function') ack(err);
+      if (!isUuid(conversationId)) {
+        const err = {
+          code: "INVALID_CONVERSATION",
+          message: "conversationId must be a UUID",
+        };
+        if (typeof ack === "function") ack(err);
         return;
       }
       const room = roomNameForConversation(conversationId);
       socket.join(room);
       logger.info(`userId=${uid} joined ${room}`);
-      if (typeof ack === 'function') ack(null, { conversationId, room });
+      if (typeof ack === "function") ack(null, { conversationId, room });
     });
 
-    socket.on('leave_conversation', (payload, ack) => {
+    socket.on("leave_conversation", (payload, ack) => {
       const conversationId = payload?.conversationId;
-      if (!isUuidV4(conversationId)) {
-        const err = { code: 'INVALID_CONVERSATION', message: 'conversationId must be a UUID v4' };
-        if (typeof ack === 'function') ack(err);
+      if (!isUuid(conversationId)) {
+        const err = {
+          code: "INVALID_CONVERSATION",
+          message: "conversationId must be a UUID",
+        };
+        if (typeof ack === "function") ack(err);
         return;
       }
       const room = roomNameForConversation(conversationId);
       socket.leave(room);
-      logger.info(`userId=${uid ?? '?'} left ${room}`);
-      if (typeof ack === 'function') ack(null, { conversationId });
+      logger.info(`userId=${uid ?? "?"} left ${room}`);
+      if (typeof ack === "function") ack(null, { conversationId });
     });
 
-    socket.on('send_message', (payload, ack) => {
+    socket.on("send_message", (payload, ack) => {
       if (!uid) {
-        const err = { code: 'UNAUTHORIZED', message: 'Missing userId on connection' };
-        if (typeof ack === 'function') ack(err);
+        const err = {
+          code: "UNAUTHORIZED",
+          message: "Missing authenticated user",
+        };
+        if (typeof ack === "function") ack(err);
         return;
       }
       const conversationId = payload?.conversationId;
       const text = payload?.text;
-      if (!isUuidV4(conversationId)) {
-        const err = { code: 'INVALID_CONVERSATION', message: 'conversationId must be a UUID v4' };
-        if (typeof ack === 'function') ack(err);
+      if (!isUuid(conversationId)) {
+        const err = {
+          code: "INVALID_CONVERSATION",
+          message: "conversationId must be a UUID",
+        };
+        if (typeof ack === "function") ack(err);
         return;
       }
-      if (typeof text !== 'string' || text.trim().length === 0) {
-        const err = { code: 'INVALID_MESSAGE', message: 'text must be a non-empty string' };
-        if (typeof ack === 'function') ack(err);
+      if (typeof text !== "string" || text.trim().length === 0) {
+        const err = {
+          code: "INVALID_MESSAGE",
+          message: "text must be a non-empty string",
+        };
+        if (typeof ack === "function") ack(err);
         return;
       }
       if (text.length > MAX_MESSAGE_LENGTH) {
         const err = {
-          code: 'MESSAGE_TOO_LONG',
+          code: "MESSAGE_TOO_LONG",
           message: `text must be at most ${MAX_MESSAGE_LENGTH} characters`,
         };
-        if (typeof ack === 'function') ack(err);
+        if (typeof ack === "function") ack(err);
         return;
       }
       const room = roomNameForConversation(conversationId);
@@ -110,15 +158,15 @@ export function initSocket(httpServer) {
         senderId: uid,
         text: text.trim(),
         createdAt: new Date().toISOString(),
-        ...(typeof clientMessageId === 'string' && isUuidV4(clientMessageId)
+        ...(typeof clientMessageId === "string" && isUuid(clientMessageId)
           ? { clientMessageId }
           : {}),
       };
-      io.to(room).emit('message', message);
-      if (typeof ack === 'function') ack(null, message);
+      io.to(room).emit("message", message);
+      if (typeof ack === "function") ack(null, message);
     });
 
-    socket.on('disconnect', () => {
+    socket.on("disconnect", () => {
       if (uid) {
         const set = userSockets.get(uid);
         if (set) {
@@ -131,13 +179,13 @@ export function initSocket(httpServer) {
   });
 
   ioInstance = io;
-  logger.info('Socket.IO initialized (messaging: join_conversation, send_message)');
+  logger.info("Socket.IO initialized (Clerk JWT auth; messaging events)");
   return io;
 }
 
 export function getIO() {
   if (!ioInstance) {
-    throw new Error('Socket.IO not initialized');
+    throw new Error("Socket.IO not initialized");
   }
   return ioInstance;
 }
