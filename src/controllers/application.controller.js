@@ -8,6 +8,7 @@ import {
 } from "#services/application.service.js";
 import { getJobById } from "#services/jobs.service.js";
 import { createNotification } from "#services/notifications.service.js";
+import { ensureJobConversation } from "#services/messaging.service.js";
 import { emitToUser } from "#config/socket.js";
 import logger from "#config/logger.js";
 
@@ -73,6 +74,20 @@ export async function applyToJob(req, res) {
       conditions: conditions || null,
     });
     logger.info(`[Apply] Application created successfully - ID: ${application.id}`);
+    let conversation = null;
+
+    try {
+      conversation = await ensureJobConversation({
+        jobId: Number(jobId),
+        jobTitle: job.serviceType,
+        currentClerkId: userId,
+        currentUserName: userName || "Freelancer",
+        otherClerkId: job.clerkId,
+        otherUserName: job.userName || "Client",
+      });
+    } catch (conversationError) {
+      logger.error("[Apply] Error creating job conversation:", conversationError);
+    }
 
     // Create notification for the client (non-blocking)
     logger.info(`[Apply] Creating notification for client ${job.clerkId}...`);
@@ -112,6 +127,17 @@ export async function applyToJob(req, res) {
       success: true,
       message: "Application submitted successfully",
       data: application,
+      ...(conversation
+        ? {
+            conversation: {
+              conversationId: conversation.conversationId,
+              jobId: conversation.jobId,
+              jobTitle: conversation.jobTitle,
+              otherClerkId: job.clerkId,
+              otherDisplayName: job.userName || "Client",
+            },
+          }
+        : {}),
     });
   } catch (error) {
     logger.error("Error applying to job:", error);

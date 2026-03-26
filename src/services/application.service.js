@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import logger from "#config/logger.js";
+import { conversationIdForJobClerkPair } from "#utils/conversationId.js";
 
 const sql = neon(process.env.DATABASE_URL);
 
@@ -132,7 +133,8 @@ export async function getApplicationsByFreelancerId(clerkId) {
         sr.max_price,
         sr.start_date,
         sr.end_date,
-        sr.user_name as client_name
+        sr.user_name as client_name,
+        sr.clerk_id as client_clerk_id
       FROM job_applications a
       JOIN service_request sr ON a.job_id = sr.id
       WHERE a.freelancer_clerk_id = ${clerkId}
@@ -142,12 +144,18 @@ export async function getApplicationsByFreelancerId(clerkId) {
     logger.info(`Retrieved ${result.length} applications for freelancer ${clerkId}`);
     return result.map(app => ({
       ...transformApplication(app),
+      conversationId: conversationIdForJobClerkPair(
+        app.job_id,
+        app.freelancer_clerk_id,
+        app.client_clerk_id
+      ),
       job: {
         serviceType: app.service_type,
         maxPrice: app.max_price,
         startDate: app.start_date,
         endDate: app.end_date,
         clientName: app.client_name,
+        clientClerkId: app.client_clerk_id,
       }
     }));
   } catch (error) {
@@ -249,7 +257,8 @@ export async function getApplicationsForClient(clerkId) {
         sr.service_type,
         sr.max_price,
         sr.start_date,
-        sr.end_date
+        sr.end_date,
+        sr.clerk_id as client_clerk_id
       FROM job_applications a
       JOIN service_request sr ON a.job_id = sr.id
       WHERE sr.clerk_id = ${clerkId}
@@ -274,6 +283,15 @@ export async function getApplicationsForClient(clerkId) {
       }
       
       jobsMap.get(jobId).applications.push(transformApplication(app));
+      const applications = jobsMap.get(jobId).applications;
+      applications[applications.length - 1] = {
+        ...applications[applications.length - 1],
+        conversationId: conversationIdForJobClerkPair(
+          app.job_id,
+          app.freelancer_clerk_id,
+          app.client_clerk_id
+        ),
+      };
     });
 
     return Array.from(jobsMap.values());

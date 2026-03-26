@@ -1,8 +1,11 @@
 import { Server as SocketIOServer } from "socket.io";
-import { randomUUID } from "node:crypto";
 import { verifyToken } from "@clerk/clerk-sdk-node";
 import logger from "#config/logger.js";
 import { socketCorsOrigin } from "#config/cors.js";
+import {
+  getConversationByIdForUser,
+  saveConversationMessage,
+} from "#services/messaging.service.js";
 
 let ioInstance = null;
 /** @type {Map<string, Set<string>>} clerk user id -> socket ids */
@@ -45,6 +48,7 @@ export function initSocket(httpServer) {
           secretKey: process.env.CLERK_SECRET_KEY,
         });
         socket.data.clerkUserId = payload.sub;
+        socket.data.userName = payload.name || payload.email || null;
         return next();
       } catch (e) {
         logger.warn(`Socket JWT rejected: ${e.message}`);
@@ -75,7 +79,7 @@ export function initSocket(httpServer) {
       logger.warn("Socket connected without clerkUserId");
     }
 
-    socket.on("join_conversation", (payload, ack) => {
+    socket.on("join_conversation", async (payload, ack) => {
       if (!uid) {
         const err = {
           code: "UNAUTHORIZED",
@@ -93,10 +97,25 @@ export function initSocket(httpServer) {
         if (typeof ack === "function") ack(err);
         return;
       }
+      const conversation = await getConversationByIdForUser(conversationId, uid);
+      if (!conversation) {
+        const err = {
+          code: "CONVERSATION_NOT_FOUND",
+          message: "Conversation not found or not accessible",
+        };
+        if (typeof ack === "function") ack(err);
+        return;
+      }
       const room = roomNameForConversation(conversationId);
       socket.join(room);
       logger.info(`userId=${uid} joined ${room}`);
-      if (typeof ack === "function") ack(null, { conversationId, room });
+      if (typeof ack === "function") {
+        ack(null, {
+          conversationId,
+          room,
+          conversation,
+        });
+      }
     });
 
     socket.on("leave_conversation", (payload, ack) => {
@@ -115,7 +134,7 @@ export function initSocket(httpServer) {
       if (typeof ack === "function") ack(null, { conversationId });
     });
 
-    socket.on("send_message", (payload, ack) => {
+    socket.on("send_message", async (payload, ack) => {
       if (!uid) {
         const err = {
           code: "UNAUTHORIZED",
@@ -152,18 +171,28 @@ export function initSocket(httpServer) {
       }
       const room = roomNameForConversation(conversationId);
       const clientMessageId = payload?.clientMessageId;
-      const message = {
-        id: randomUUID(),
-        conversationId,
-        senderId: uid,
-        text: text.trim(),
-        createdAt: new Date().toISOString(),
-        ...(typeof clientMessageId === "string" && isUuid(clientMessageId)
-          ? { clientMessageId }
-          : {}),
-      };
-      io.to(room).emit("message", message);
-      if (typeof ack === "function") ack(null, message);
+      try {
+        const { message } = await saveConversationMessage({
+          conversationId,
+          senderClerkId: uid,
+          senderName: socket.data.userName || null,
+          text,
+          clientMessageId:
+            typeof clientMessageId === "string" && isUuid(clientMessageId)
+              ? clientMessageId
+              : null,
+        });
+        io.to(room).emit("message", message);
+        if (typeof ack === "function") ack(null, message);
+      } catch (e) {
+        logger.warn(`send_message rejected: ${e.message}`);
+        if (typeof ack === "function") {
+          ack({
+            code: "MESSAGE_REJECTED",
+            message: e.message,
+          });
+        }
+      }
     });
 
     socket.on("disconnect", () => {

@@ -3,7 +3,14 @@ import {
   listUsersForChat,
   getUserChatSummary,
 } from "#services/user.service.js";
-import { conversationIdForClerkPair } from "#utils/conversationId.js";
+import {
+  ensureDirectConversation,
+  getOtherParticipant,
+  listConversationsForUser,
+  listMessagesForConversation,
+  saveConversationMessage,
+} from "#services/messaging.service.js";
+import { emitToUser } from "#config/socket.js";
 
 /**
  * GET /api/messaging/users?q=&limit=
@@ -56,11 +63,17 @@ export async function getConversationWithUser(req, res) {
       });
     }
 
-    const conversationId = conversationIdForClerkPair(me, otherClerkId);
+    const conversation = await ensureDirectConversation({
+      currentClerkId: me,
+      currentUserName: req.user.userName,
+      otherClerkId,
+      otherUserName: other.displayName,
+    });
 
     return res.status(200).json({
       success: true,
-      conversationId,
+      conversationId: conversation.conversationId,
+      conversation,
       otherUser: other,
     });
   } catch (error) {
@@ -68,6 +81,102 @@ export async function getConversationWithUser(req, res) {
     return res.status(500).json({
       success: false,
       message: "Failed to resolve conversation",
+    });
+  }
+}
+
+/**
+ * GET /api/messaging/conversations?limit=
+ * List conversations for the current Clerk user.
+ */
+export async function getMyConversations(req, res) {
+  try {
+    const conversations = await listConversationsForUser(req.user.clerkId, {
+      limit: req.query.limit,
+    });
+
+    return res.status(200).json({
+      success: true,
+      conversations,
+    });
+  } catch (error) {
+    logger.error("getMyConversations:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to list conversations",
+    });
+  }
+}
+
+/**
+ * GET /api/messaging/conversations/:conversationId/messages?limit=&before=
+ * Return message history for a conversation the current user belongs to.
+ */
+export async function getConversationMessages(req, res) {
+  try {
+    const { conversationId } = req.params;
+    const result = await listMessagesForConversation(
+      conversationId,
+      req.user.clerkId,
+      {
+        limit: req.query.limit,
+        before: req.query.before,
+      }
+    );
+
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: "Conversation not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      conversation: result.conversation,
+      messages: result.messages,
+    });
+  } catch (error) {
+    logger.error("getConversationMessages:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load messages",
+    });
+  }
+}
+
+/**
+ * POST /api/messaging/conversations/:conversationId/messages
+ * REST send fallback for when Socket.IO is unavailable.
+ */
+export async function postConversationMessage(req, res) {
+  try {
+    const { conversationId } = req.params;
+    const { text, clientMessageId } = req.body || {};
+    const result = await saveConversationMessage({
+      conversationId,
+      senderClerkId: req.user.clerkId,
+      senderName: req.user.userName,
+      text,
+      clientMessageId,
+    });
+
+    const recipient = getOtherParticipant(result.conversation, req.user.clerkId);
+    if (recipient) {
+      emitToUser(recipient.clerkId, "message", result.message);
+    }
+
+    return res.status(201).json({
+      success: true,
+      conversation: result.conversation,
+      message: result.message,
+      duplicate: result.duplicate,
+    });
+  } catch (error) {
+    logger.error("postConversationMessage:", error);
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Failed to send message",
     });
   }
 }
