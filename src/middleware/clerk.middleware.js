@@ -1,4 +1,4 @@
-import { clerkClient, verifyToken } from "@clerk/clerk-sdk-node";
+import { getConfiguredClerkSecretCount, verifyClerkToken } from "#utils/clerkAuth.js";
 
 // Optional middleware to extract user info if token is present (doesn't require auth)
 export async function clerkAuth(req, res, next) {
@@ -8,16 +8,14 @@ export async function clerkAuth(req, res, next) {
     
     if (token) {
       try {
-        // ✅ Fixed: Use correct verifyToken syntax for current Clerk SDK
-        const payload = await verifyToken(token, {
-          secretKey: process.env.CLERK_SECRET_KEY, // Use SECRET_KEY, not API_KEY
-        });
+        const { payload } = await verifyClerkToken(token);
         
         if (payload) {
           req.user = {
             clerkId: payload.sub,
             userName: payload.name || payload.email || "Anonymous",
             userAvatar: payload.picture || null,
+            clerkIssuer: payload.iss || null,
           };
         }
       } catch (authErr) {
@@ -46,12 +44,12 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ success: false, message: "Missing auth token" });
     }
 
-    // ✅ Fixed: Use correct verifyToken syntax
-    const payload = await verifyToken(token, {
-      secretKey: process.env.CLERK_SECRET_KEY, // Use SECRET_KEY, not API_KEY
-    });
+    const { payload, secretIndex } = await verifyClerkToken(token);
     
-    console.log("🔑 RequireAuth - Token verification:", payload ? "Success" : "Failed");
+    console.log(
+      "🔑 RequireAuth - Token verification:",
+      payload ? `Success (secret ${secretIndex + 1}/${getConfiguredClerkSecretCount()})` : "Failed"
+    );
     
     if (!payload) {
       console.log("❌ RequireAuth - Invalid token payload");
@@ -63,6 +61,7 @@ export async function requireAuth(req, res, next) {
       clerkId: payload.sub, // JWT subject (user ID)
       userName: payload.name || payload.email || "Anonymous",
       userAvatar: payload.picture || null,
+      clerkIssuer: payload.iss || null,
     };
     
     console.log("✅ RequireAuth - User authenticated:", {
@@ -75,6 +74,7 @@ export async function requireAuth(req, res, next) {
     console.error("❌ Clerk auth error:", {
       message: err.message,
       name: err.name,
+      failures: err.failures,
       stack: err.stack?.substring(0, 200)
     });
     return res.status(401).json({ success: false, message: "Unauthorized" });

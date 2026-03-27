@@ -1,11 +1,11 @@
 import { Server as SocketIOServer } from "socket.io";
-import { verifyToken } from "@clerk/clerk-sdk-node";
 import logger from "#config/logger.js";
 import { socketCorsOrigin } from "#config/cors.js";
 import {
   getConversationByIdForUser,
   saveConversationMessage,
 } from "#services/messaging.service.js";
+import { getConfiguredClerkSecretCount, verifyClerkToken } from "#utils/clerkAuth.js";
 
 let ioInstance = null;
 /** @type {Map<string, Set<string>>} clerk user id -> socket ids */
@@ -44,11 +44,13 @@ export function initSocket(httpServer) {
 
     if (token) {
       try {
-        const payload = await verifyToken(String(token), {
-          secretKey: process.env.CLERK_SECRET_KEY,
-        });
+        const { payload, secretIndex } = await verifyClerkToken(String(token));
         socket.data.clerkUserId = payload.sub;
         socket.data.userName = payload.name || payload.email || null;
+        socket.data.clerkIssuer = payload.iss || null;
+        logger.info(
+          `Socket auth accepted for ${payload.sub} using Clerk secret ${secretIndex + 1}/${getConfiguredClerkSecretCount()}`
+        );
         return next();
       } catch (e) {
         logger.warn(`Socket JWT rejected: ${e.message}`);
