@@ -1,5 +1,11 @@
 import express from "express";
-import { getMyApplications, updateApplicationStatusController, getAllApplicationsController, getClientApplicationsController } from "#controllers/application.controller.js";
+import {
+  getMyApplications,
+  updateApplicationStatusController,
+  getAllApplicationsController,
+  getClientApplicationsController,
+  shareApplicationContactController,
+} from "#controllers/application.controller.js";
 import { requireAuth } from "#middleware/clerk.middleware.js";
 
 const router = express.Router();
@@ -15,5 +21,6 @@ router.get("/client", requireAuth, getClientApplicationsController);
 
 // Update application status (client accepting/rejecting)
 router.patch("/:id/status", requireAuth, updateApplicationStatusController);
+router.patch("/:id/contact", requireAuth, shareApplicationContactController);
 
 export default router;

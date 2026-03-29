@@ -1,25 +1,16 @@
 import { neon } from "@neondatabase/serverless";
 import logger from "#config/logger.js";
 import { conversationIdForJobClerkPair } from "#utils/conversationId.js";
+import {
+  isMissingApplicationContactColumnError,
+  normalizePhoneNumber,
+  transformApplication,
+} from "#utils/applicationPresentation.js";
 
 const sql = neon(process.env.DATABASE_URL);
 
-/**
- * Transform database row to camelCase response
- */
-function transformApplication(app) {
-  return {
-    id: app.id,
-    jobId: app.job_id,
-    freelancerClerkId: app.freelancer_clerk_id,
-    freelancerName: app.freelancer_name,
-    freelancerEmail: app.freelancer_email,
-    quotation: app.quotation,
-    conditions: app.conditions,
-    status: app.status,
-    createdAt: app.created_at,
-    updatedAt: app.updated_at,
-  };
+function trimOptionalString(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 /**
@@ -36,10 +27,9 @@ export async function createApplication(applicationData) {
   } = applicationData;
 
   try {
-    // Check if application already exists
     const existing = await sql`
       SELECT id FROM job_applications
-      WHERE job_id = ${jobId} 
+      WHERE job_id = ${jobId}
       AND freelancer_clerk_id = ${freelancerClerkId}
       LIMIT 1;
     `;
@@ -48,14 +38,13 @@ export async function createApplication(applicationData) {
       throw new Error("You have already applied to this job");
     }
 
-    // Try with quotation/conditions first, fallback if columns don't exist
     let result;
     try {
       result = await sql`
         INSERT INTO job_applications (
-          job_id, 
-          freelancer_clerk_id, 
-          freelancer_name, 
+          job_id,
+          freelancer_clerk_id,
+          freelancer_name,
           freelancer_email,
           quotation,
           conditions
@@ -71,14 +60,13 @@ export async function createApplication(applicationData) {
         RETURNING *;
       `;
     } catch (insertError) {
-      // If error mentions undefined column, try without quotation/conditions
-      if (insertError.message.includes('column') || insertError.message.includes('does not exist')) {
-        logger.warn('Quotation/conditions columns not found, inserting without them. Run migration!');
+      if (insertError.message.includes("column") || insertError.message.includes("does not exist")) {
+        logger.warn("Quotation/conditions columns not found, inserting without them. Run migration!");
         result = await sql`
           INSERT INTO job_applications (
-            job_id, 
-            freelancer_clerk_id, 
-            freelancer_name, 
+            job_id,
+            freelancer_clerk_id,
+            freelancer_name,
             freelancer_email
           )
           VALUES (
@@ -95,7 +83,7 @@ export async function createApplication(applicationData) {
     }
 
     logger.info(`Application created: id=${result[0].id}, jobId=${jobId}, freelancer=${freelancerClerkId}`);
-    return transformApplication(result[0]);
+    return transformApplication(result[0], { viewerRole: "freelancer" });
   } catch (error) {
     logger.error("Error creating application:", error);
     throw error;
@@ -108,13 +96,19 @@ export async function createApplication(applicationData) {
 export async function getApplicationsByJobId(jobId) {
   try {
     const result = await sql`
-      SELECT * FROM job_applications
-      WHERE job_id = ${jobId}
-      ORDER BY created_at DESC;
+      SELECT
+        a.*,
+        sr.max_price as job_max_price,
+        sr.created_at as job_created_at,
+        sr.user_name as job_client_name
+      FROM job_applications a
+      JOIN service_request sr ON a.job_id = sr.id
+      WHERE a.job_id = ${jobId}
+      ORDER BY a.created_at DESC;
     `;
 
     logger.info(`Retrieved ${result.length} applications for job ${jobId}`);
-    return result.map(transformApplication);
+    return result.map((app) => transformApplication(app, { viewerRole: "client" }));
   } catch (error) {
     logger.error(`Error fetching applications for job ${jobId}:`, error);
     throw error;
@@ -127,14 +121,15 @@ export async function getApplicationsByJobId(jobId) {
 export async function getApplicationsByFreelancerId(clerkId) {
   try {
     const result = await sql`
-      SELECT 
+      SELECT
         a.*,
-        sr.service_type,
-        sr.max_price,
-        sr.start_date,
-        sr.end_date,
-        sr.user_name as client_name,
-        sr.clerk_id as client_clerk_id
+        sr.service_type as job_service_type,
+        sr.max_price as job_max_price,
+        sr.start_date as job_start_date,
+        sr.end_date as job_end_date,
+        sr.user_name as job_client_name,
+        sr.clerk_id as job_client_clerk_id,
+        sr.created_at as job_created_at
       FROM job_applications a
       JOIN service_request sr ON a.job_id = sr.id
       WHERE a.freelancer_clerk_id = ${clerkId}
@@ -142,21 +137,21 @@ export async function getApplicationsByFreelancerId(clerkId) {
     `;
 
     logger.info(`Retrieved ${result.length} applications for freelancer ${clerkId}`);
-    return result.map(app => ({
-      ...transformApplication(app),
+    return result.map((app) => ({
+      ...transformApplication(app, { viewerRole: "freelancer" }),
       conversationId: conversationIdForJobClerkPair(
         app.job_id,
         app.freelancer_clerk_id,
-        app.client_clerk_id
+        app.job_client_clerk_id
       ),
       job: {
-        serviceType: app.service_type,
-        maxPrice: app.max_price,
-        startDate: app.start_date,
-        endDate: app.end_date,
-        clientName: app.client_name,
-        clientClerkId: app.client_clerk_id,
-      }
+        serviceType: app.job_service_type,
+        maxPrice: app.job_max_price,
+        startDate: app.job_start_date,
+        endDate: app.job_end_date,
+        clientName: app.job_client_name,
+        clientClerkId: app.job_client_clerk_id,
+      },
     }));
   } catch (error) {
     logger.error(`Error fetching applications for freelancer ${clerkId}:`, error);
@@ -168,10 +163,10 @@ export async function getApplicationsByFreelancerId(clerkId) {
  * Update application status
  */
 export async function updateApplicationStatus(applicationId, status) {
-  const validStatuses = ['pending', 'accepted', 'rejected'];
-  
+  const validStatuses = ["pending", "accepted", "rejected"];
+
   if (!validStatuses.includes(status)) {
-    throw new Error(`Invalid status. Must be one of: ${validStatuses.join(', ')}`);
+    throw new Error(`Invalid status. Must be one of: ${validStatuses.join(", ")}`);
   }
 
   try {
@@ -187,7 +182,7 @@ export async function updateApplicationStatus(applicationId, status) {
     }
 
     logger.info(`Application ${applicationId} status updated to ${status}`);
-    return transformApplication(result[0]);
+    return getApplicationById(applicationId, { viewerRole: "admin" });
   } catch (error) {
     logger.error(`Error updating application ${applicationId}:`, error);
     throw error;
@@ -197,11 +192,21 @@ export async function updateApplicationStatus(applicationId, status) {
 /**
  * Get application by ID
  */
-export async function getApplicationById(applicationId) {
+export async function getApplicationById(applicationId, options = {}) {
   try {
     const result = await sql`
-      SELECT * FROM job_applications
-      WHERE id = ${applicationId}
+      SELECT
+        a.*,
+        sr.service_type as job_service_type,
+        sr.max_price as job_max_price,
+        sr.start_date as job_start_date,
+        sr.end_date as job_end_date,
+        sr.user_name as job_client_name,
+        sr.clerk_id as job_client_clerk_id,
+        sr.created_at as job_created_at
+      FROM job_applications a
+      JOIN service_request sr ON a.job_id = sr.id
+      WHERE a.id = ${applicationId}
       LIMIT 1;
     `;
 
@@ -209,9 +214,54 @@ export async function getApplicationById(applicationId) {
       return null;
     }
 
-    return transformApplication(result[0]);
+    return transformApplication(result[0], { viewerRole: options.viewerRole || "admin" });
   } catch (error) {
     logger.error(`Error fetching application ${applicationId}:`, error);
+    throw error;
+  }
+}
+
+export async function updateApplicationClientContact(
+  applicationId,
+  {
+    phoneNumber,
+    contactName = null,
+    contactInstructions = null,
+    sharedByClerkId = null,
+  }
+) {
+  const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+  const trimmedContactName = trimOptionalString(contactName) || null;
+  const trimmedContactInstructions = trimOptionalString(contactInstructions) || null;
+
+  try {
+    const result = await sql`
+      UPDATE job_applications
+      SET
+        client_contact_phone = ${normalizedPhoneNumber},
+        client_contact_name = ${trimmedContactName},
+        contact_release_notes = ${trimmedContactInstructions},
+        contact_shared_at = NOW(),
+        contact_shared_by_clerk_id = ${sharedByClerkId || null},
+        updated_at = NOW()
+      WHERE id = ${applicationId}
+      RETURNING *;
+    `;
+
+    if (result.length === 0) {
+      throw new Error("Application not found");
+    }
+
+    logger.info(`Application ${applicationId} contact details updated`);
+    return getApplicationById(applicationId, { viewerRole: "admin" });
+  } catch (error) {
+    if (isMissingApplicationContactColumnError(error)) {
+      throw new Error(
+        "Database migration required before sharing phone numbers. Run migrations/add_application_contact_fields.sql"
+      );
+    }
+
+    logger.error(`Error updating contact details for application ${applicationId}:`, error);
     throw error;
   }
 }
@@ -222,25 +272,27 @@ export async function getApplicationById(applicationId) {
 export async function getAllApplications() {
   try {
     const result = await sql`
-      SELECT 
+      SELECT
         a.*,
-        sr.service_type,
-        sr.clerk_id as job_clerk_id,
-        sr.user_name as job_owner_name
+        sr.service_type as job_service_type,
+        sr.clerk_id as job_client_clerk_id,
+        sr.user_name as job_client_name,
+        sr.max_price as job_max_price,
+        sr.created_at as job_created_at
       FROM job_applications a
       JOIN service_request sr ON a.job_id = sr.id
       ORDER BY a.created_at DESC;
     `;
 
     logger.info(`Retrieved ${result.length} total applications`);
-    return result.map(app => ({
-      ...transformApplication(app),
-      jobServiceType: app.service_type,
-      jobClerkId: app.job_clerk_id,
-      jobOwnerName: app.job_owner_name,
+    return result.map((app) => ({
+      ...transformApplication(app, { viewerRole: "admin" }),
+      jobServiceType: app.job_service_type,
+      jobClerkId: app.job_client_clerk_id,
+      jobOwnerName: app.job_client_name,
     }));
   } catch (error) {
-    logger.error('Error fetching all applications:', error);
+    logger.error("Error fetching all applications:", error);
     throw error;
   }
 }
@@ -251,14 +303,16 @@ export async function getAllApplications() {
 export async function getApplicationsForClient(clerkId) {
   try {
     const result = await sql`
-      SELECT 
+      SELECT
         a.*,
         sr.id as job_id,
-        sr.service_type,
-        sr.max_price,
-        sr.start_date,
-        sr.end_date,
-        sr.clerk_id as client_clerk_id
+        sr.service_type as job_service_type,
+        sr.max_price as job_max_price,
+        sr.start_date as job_start_date,
+        sr.end_date as job_end_date,
+        sr.clerk_id as job_client_clerk_id,
+        sr.user_name as job_client_name,
+        sr.created_at as job_created_at
       FROM job_applications a
       JOIN service_request sr ON a.job_id = sr.id
       WHERE sr.clerk_id = ${clerkId}
@@ -266,32 +320,42 @@ export async function getApplicationsForClient(clerkId) {
     `;
 
     logger.info(`Retrieved ${result.length} applications for client ${clerkId}`);
-    
-    // Group by job
+
     const jobsMap = new Map();
-    result.forEach(app => {
+    result.forEach((app) => {
       const jobId = app.job_id;
+
       if (!jobsMap.has(jobId)) {
         jobsMap.set(jobId, {
           id: jobId,
-          serviceType: app.service_type,
-          maxPrice: Number(app.max_price) || 0,
-          startDate: app.start_date,
-          endDate: app.end_date,
-          applications: []
+          serviceType: app.job_service_type,
+          maxPrice: Number(app.job_max_price) || 0,
+          startDate: app.job_start_date,
+          endDate: app.job_end_date,
+          applications: [],
+          applicationSummary: {
+            total: 0,
+            pending: 0,
+            accepted: 0,
+            rejected: 0,
+          },
         });
       }
-      
-      jobsMap.get(jobId).applications.push(transformApplication(app));
-      const applications = jobsMap.get(jobId).applications;
-      applications[applications.length - 1] = {
-        ...applications[applications.length - 1],
+
+      const jobEntry = jobsMap.get(jobId);
+      jobEntry.applications.push({
+        ...transformApplication(app, { viewerRole: "client" }),
         conversationId: conversationIdForJobClerkPair(
           app.job_id,
           app.freelancer_clerk_id,
-          app.client_clerk_id
+          app.job_client_clerk_id
         ),
-      };
+      });
+
+      jobEntry.applicationSummary.total += 1;
+      if (jobEntry.applicationSummary[app.status] !== undefined) {
+        jobEntry.applicationSummary[app.status] += 1;
+      }
     });
 
     return Array.from(jobsMap.values());

@@ -22,6 +22,10 @@ router.get('/test-apply', async (req, res) => {
       columns: columns.map(c => c.column_name),
       hasQuotation: columns.some(c => c.column_name === 'quotation'),
       hasConditions: columns.some(c => c.column_name === 'conditions'),
+      hasClientContactPhone: columns.some(c => c.column_name === 'client_contact_phone'),
+      hasClientContactName: columns.some(c => c.column_name === 'client_contact_name'),
+      hasContactReleaseNotes: columns.some(c => c.column_name === 'contact_release_notes'),
+      hasContactSharedAt: columns.some(c => c.column_name === 'contact_shared_at'),
     });
   } catch (error) {
     return res.status(500).json({

@@ -5,6 +5,8 @@ import {
   updateApplicationStatus,
   getAllApplications,
   getApplicationsForClient,
+  getApplicationById,
+  updateApplicationClientContact,
 } from "#services/application.service.js";
 import { getJobById } from "#services/jobs.service.js";
 import { createNotification } from "#services/notifications.service.js";
@@ -12,18 +14,68 @@ import { ensureJobConversation } from "#services/messaging.service.js";
 import { emitToUser } from "#config/socket.js";
 import logger from "#config/logger.js";
 
+function trimOptionalString(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function resolveApplicantIdentity(req) {
+  const authClerkId = req.user?.clerkId || null;
+  const authName = req.user?.userName || null;
+
+  const bodyUserId = trimOptionalString(req.body?.userId);
+  const bodyUserName = trimOptionalString(req.body?.userName);
+  const bodyUserEmail = trimOptionalString(req.body?.userEmail);
+
+  if (authClerkId && bodyUserId && bodyUserId !== authClerkId) {
+    throw new Error("Authenticated user does not match application payload");
+  }
+
+  return {
+    userId: authClerkId || bodyUserId,
+    userName: authName || bodyUserName || "Freelancer",
+    userEmail: bodyUserEmail || null,
+  };
+}
+
+async function notifyApplicationUpdate({
+  recipientClerkId,
+  jobId,
+  message,
+  application = null,
+}) {
+  try {
+    const notification = await createNotification({
+      userId: recipientClerkId,
+      jobId,
+      message,
+    });
+
+    emitToUser(recipientClerkId, "notification:new", {
+      notification: application
+        ? {
+            ...notification,
+            application,
+          }
+        : notification,
+    });
+  } catch (notifError) {
+    logger.error("Error sending application notification:", notifError);
+  }
+}
+
 /**
  * Apply to a job
  * POST /api/jobs/:id/apply
  */
 export async function applyToJob(req, res) {
+  const { id: jobId } = req.params;
+
   try {
-    const { id: jobId } = req.params;
-    const { userId, userName, userEmail, quotation, conditions } = req.body;
+    const { quotation, conditions } = req.body || {};
+    const { userId, userName, userEmail } = resolveApplicantIdentity(req);
 
     logger.info(`[Apply] New application attempt - JobID: ${jobId}, User: ${userId} (${userName})`);
 
-    // Validate required fields
     if (!userId) {
       logger.warn(`[Apply] Missing userId in application request for job ${jobId}`);
       return res.status(400).json({
@@ -32,7 +84,6 @@ export async function applyToJob(req, res) {
       });
     }
 
-    // Check if job exists
     const job = await getJobById(jobId);
     if (!job) {
       logger.warn(`[Apply] Job ${jobId} not found`);
@@ -41,10 +92,9 @@ export async function applyToJob(req, res) {
         message: "Job not found",
       });
     }
-    
+
     logger.info(`[Apply] Job found - ${job.serviceType}, Owner: ${job.clerkId}`);
 
-    // Prevent applying to own job
     if (job.clerkId === userId) {
       return res.status(400).json({
         success: false,
@@ -52,7 +102,6 @@ export async function applyToJob(req, res) {
       });
     }
 
-    // Check if job already has 5 applications
     const existingApplications = await getApplicationsByJobId(jobId);
     if (existingApplications.length >= 5) {
       logger.warn(`[Apply] Job ${jobId} already has 5 applications. Rejecting new application.`);
@@ -63,8 +112,7 @@ export async function applyToJob(req, res) {
       });
     }
 
-    // Create application
-    logger.info(`[Apply] Creating application record...`);
+    logger.info("[Apply] Creating application record...");
     const application = await createApplication({
       jobId: Number(jobId),
       freelancerClerkId: userId,
@@ -74,6 +122,7 @@ export async function applyToJob(req, res) {
       conditions: conditions || null,
     });
     logger.info(`[Apply] Application created successfully - ID: ${application.id}`);
+
     let conversation = null;
 
     try {
@@ -89,39 +138,19 @@ export async function applyToJob(req, res) {
       logger.error("[Apply] Error creating job conversation:", conversationError);
     }
 
-    // Create notification for the client (non-blocking)
     logger.info(`[Apply] Creating notification for client ${job.clerkId}...`);
-    try {
-      const message = `${userName || "A freelancer"} applied to your job: ${job.serviceType}`;
-      const notification = await createNotification({
-        userId: job.clerkId,
-        jobId: Number(jobId),
-        message,
-      });
-
-      logger.info(`[Apply] Notification created successfully - ID: ${notification.id}`);
-      
-      // Try to emit via Socket.IO (may fail if not connected, that's ok)
-      try {
-        emitToUser(job.clerkId, "notification:new", {
-          notification: {
-            ...notification,
-            application: {
-              id: application.id,
-              freelancerName: application.freelancerName,
-              freelancerEmail: application.freelancerEmail,
-              createdAt: application.createdAt,
-            },
-          },
-        });
-        logger.info(`[Apply] Socket emission attempted for client ${job.clerkId}`);
-      } catch (socketError) {
-        logger.warn(`[Apply] Socket emission failed (OK - client will poll):`, socketError.message);
-      }
-    } catch (notifError) {
-      logger.error("[Apply] Error creating notification:", notifError);
-      // Don't fail the request if notification fails
-    }
+    await notifyApplicationUpdate({
+      recipientClerkId: job.clerkId,
+      jobId: Number(jobId),
+      message: `${userName || "A freelancer"} applied to your job: ${job.serviceType}`,
+      application: {
+        id: application.id,
+        freelancerName: application.freelancerName,
+        freelancerEmail: application.freelancerEmail,
+        createdAt: application.createdAt,
+        applicationSpotlight: application.applicationSpotlight,
+      },
+    });
 
     return res.status(201).json({
       success: true,
@@ -141,14 +170,20 @@ export async function applyToJob(req, res) {
     });
   } catch (error) {
     logger.error("Error applying to job:", error);
-    
-    // Handle duplicate application error - return success to avoid user confusion
+
     if (error.message.includes("already applied")) {
-      logger.info(`[Apply] User ${userId} attempted duplicate application to job ${jobId}`);
+      logger.info(`[Apply] User ${req.user?.clerkId || req.body?.userId} attempted duplicate application to job ${jobId}`);
       return res.status(200).json({
         success: true,
         message: "You have already applied to this job",
         alreadyApplied: true,
+      });
+    }
+
+    if (error.message.includes("does not match application payload")) {
+      return res.status(403).json({
+        success: false,
+        message: error.message,
       });
     }
 
@@ -171,7 +206,6 @@ export async function getJobApplications(req, res) {
 
     logger.info(`[GetApps] Fetching applications for job ${jobId}, User: ${user?.clerkId}`);
 
-    // Check if job exists
     const job = await getJobById(jobId);
     if (!job) {
       logger.warn(`[GetApps] Job ${jobId} not found`);
@@ -183,7 +217,6 @@ export async function getJobApplications(req, res) {
 
     logger.info(`[GetApps] Job found - ${job.serviceType}, Owner: ${job.clerkId}`);
 
-    // Verify user owns this job
     if (user?.clerkId !== job.clerkId) {
       logger.warn(`[GetApps] Permission denied - User ${user?.clerkId} does not own job ${jobId}`);
       return res.status(403).json({
@@ -249,7 +282,12 @@ export async function getMyApplications(req, res) {
 export async function updateApplicationStatusController(req, res) {
   try {
     const { id: applicationId } = req.params;
-    const { status } = req.body;
+    const {
+      status,
+      clientPhoneNumber = null,
+      contactName = null,
+      contactInstructions = null,
+    } = req.body || {};
     const { user } = req;
 
     if (!status) {
@@ -259,9 +297,7 @@ export async function updateApplicationStatusController(req, res) {
       });
     }
 
-    // Get application details
-    const { getApplicationById } = await import("#services/application.service.js");
-    const application = await getApplicationById(applicationId);
+    const application = await getApplicationById(applicationId, { viewerRole: "admin" });
 
     if (!application) {
       return res.status(404).json({
@@ -270,7 +306,6 @@ export async function updateApplicationStatusController(req, res) {
       });
     }
 
-    // Get job to verify ownership
     const job = await getJobById(application.jobId);
     if (user?.clerkId !== job.clerkId) {
       return res.status(403).json({
@@ -279,38 +314,145 @@ export async function updateApplicationStatusController(req, res) {
       });
     }
 
-    const updatedApplication = await updateApplicationStatus(applicationId, status);
+    let updatedApplication = await updateApplicationStatus(applicationId, status);
+    let contactSharedNow = false;
 
-    // Notify freelancer about status change
-    try {
-      const statusMessage = status === 'accepted' 
-        ? `Your application for "${job.serviceType}" has been accepted!`
-        : `Your application for "${job.serviceType}" has been rejected`;
-      
-      const notification = await createNotification({
-        userId: application.freelancerClerkId,
-        jobId: application.jobId,
-        message: statusMessage,
+    if (status === "accepted" && clientPhoneNumber) {
+      updatedApplication = await updateApplicationClientContact(applicationId, {
+        phoneNumber: clientPhoneNumber,
+        contactName,
+        contactInstructions,
+        sharedByClerkId: user?.clerkId || null,
       });
-
-      emitToUser(application.freelancerClerkId, "notification:new", {
-        notification,
-      });
-    } catch (notifError) {
-      logger.error("Error sending status notification:", notifError);
+      contactSharedNow = true;
     }
+
+    const statusMessage =
+      status === "accepted"
+        ? contactSharedNow
+          ? `Your application for "${job.serviceType}" has been accepted and the client shared a phone number for direct contact.`
+          : `Your application for "${job.serviceType}" has been accepted. The client can now share a phone number for direct contact.`
+        : `Your application for "${job.serviceType}" has been rejected`;
+
+    await notifyApplicationUpdate({
+      recipientClerkId: application.freelancerClerkId,
+      jobId: application.jobId,
+      message: statusMessage,
+      application: {
+        id: updatedApplication.id,
+        status: updatedApplication.status,
+        contactExchange: updatedApplication.contactExchange,
+      },
+    });
 
     return res.status(200).json({
       success: true,
       message: "Application status updated successfully",
       data: updatedApplication,
+      ...(status === "accepted" && !updatedApplication.contactExchange.readyForDirectContact
+        ? {
+            nextStep: {
+              action: "share_client_phone_number",
+              applicationId: updatedApplication.id,
+              endpoint: `/api/applications/${updatedApplication.id}/contact`,
+            },
+          }
+        : {}),
     });
   } catch (error) {
     logger.error("Error updating application status:", error);
-    return res.status(500).json({
+    return res.status(
+      error.message.includes("Database migration required") || error.message.includes("Phone number")
+        ? 400
+        : 500
+    ).json({
       success: false,
       message: "Failed to update application status",
       error: error.message,
+    });
+  }
+}
+
+/**
+ * Share direct contact details after an application is accepted
+ * PATCH /api/applications/:id/contact
+ */
+export async function shareApplicationContactController(req, res) {
+  try {
+    const { id: applicationId } = req.params;
+    const {
+      phoneNumber,
+      clientPhoneNumber = null,
+      contactName = null,
+      contactInstructions = null,
+    } = req.body || {};
+    const { user } = req;
+    const resolvedPhoneNumber = phoneNumber || clientPhoneNumber;
+
+    if (!resolvedPhoneNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number is required",
+      });
+    }
+
+    const application = await getApplicationById(applicationId, { viewerRole: "admin" });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: "Application not found",
+      });
+    }
+
+    const job = await getJobById(application.jobId);
+    if (user?.clerkId !== job.clerkId) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to share contact details for this application",
+      });
+    }
+
+    if (application.status !== "accepted") {
+      return res.status(400).json({
+        success: false,
+        message: "Contact details can only be shared after the application is accepted",
+      });
+    }
+
+    const updatedApplication = await updateApplicationClientContact(applicationId, {
+      phoneNumber: resolvedPhoneNumber,
+      contactName,
+      contactInstructions,
+      sharedByClerkId: user?.clerkId || null,
+    });
+
+    await notifyApplicationUpdate({
+      recipientClerkId: application.freelancerClerkId,
+      jobId: application.jobId,
+      message: `${job.userName || "The client"} shared a phone number for "${job.serviceType}". You can now contact them directly.`,
+      application: {
+        id: updatedApplication.id,
+        status: updatedApplication.status,
+        contactExchange: updatedApplication.contactExchange,
+      },
+    });
+
+    emitToUser(application.freelancerClerkId, "application:contact-shared", {
+      applicationId: updatedApplication.id,
+      contactExchange: updatedApplication.contactExchange,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Client contact details shared successfully",
+      data: updatedApplication,
+    });
+  } catch (error) {
+    logger.error("Error sharing application contact details:", error);
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Failed to share contact details",
     });
   }
 }
@@ -323,7 +465,7 @@ export async function getAllApplicationsController(req, res) {
   try {
     const applications = await getAllApplications();
     logger.info(`Retrieved ${applications.length} total applications for debugging`);
-    
+
     return res.status(200).json({
       success: true,
       message: "All applications retrieved successfully",
