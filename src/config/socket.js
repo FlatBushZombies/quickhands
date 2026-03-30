@@ -1,6 +1,6 @@
 import { Server as SocketIOServer } from "socket.io";
 import logger from "#config/logger.js";
-import { socketCorsOrigin } from "#config/cors.js";
+import { SOCKET_CORS_METHODS, socketCorsOrigin } from "#config/cors.js";
 import {
   getConversationByIdForUser,
   saveConversationMessage,
@@ -29,7 +29,7 @@ export function initSocket(httpServer) {
   const io = new SocketIOServer(httpServer, {
     cors: {
       origin: socketCorsOrigin(),
-      methods: ["GET", "POST", "OPTIONS"],
+      methods: SOCKET_CORS_METHODS,
       credentials: true,
     },
     transports: ["polling", "websocket"],

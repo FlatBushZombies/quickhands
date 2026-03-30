@@ -13,18 +13,25 @@ import messagingRoutes from '#routes/messaging.routes.js';
 import testRoutes from '#routes/test.routes.js';
 import { securityMiddleware } from '#middleware/security.middleware.js';
 import { clerkAuth } from '#middleware/clerk.middleware.js';
-import { corsOriginCallback } from '#config/cors.js';
+import {
+  corsOriginCallback,
+  HTTP_CORS_ALLOWED_HEADERS,
+  HTTP_CORS_METHODS,
+} from '#config/cors.js';
 
 const app = express();
 
+const corsOptions = {
+  origin: corsOriginCallback,
+  methods: HTTP_CORS_METHODS,
+  allowedHeaders: HTTP_CORS_ALLOWED_HEADERS,
+  credentials: true,
+  optionsSuccessStatus: 204,
+};
+
 app.use(helmet());
-app.use(
-  cors({
-    origin: corsOriginCallback,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    credentials: true,
-  })
-);
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({extended: true}));
 app.use(cookieParser())

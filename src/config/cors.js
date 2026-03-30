@@ -9,6 +9,10 @@ const DEFAULT_ORIGINS = [
   'http://127.0.0.1:19006',
 ];
 
+export const HTTP_CORS_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+export const HTTP_CORS_ALLOWED_HEADERS = ['Authorization', 'Content-Type'];
+export const SOCKET_CORS_METHODS = ['GET', 'POST', 'OPTIONS'];
+
 function parseAllowedOrigins() {
   const raw = process.env.CLIENT_ORIGINS;
   if (!raw || raw.trim() === '') return DEFAULT_ORIGINS;
