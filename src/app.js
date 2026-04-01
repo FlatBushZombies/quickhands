@@ -13,6 +13,7 @@ import messagingRoutes from '#routes/messaging.routes.js';
 import testRoutes from '#routes/test.routes.js';
 import { securityMiddleware } from '#middleware/security.middleware.js';
 import { clerkAuth } from '#middleware/clerk.middleware.js';
+import { errorHandler, notFoundHandler } from '#middleware/error.middleware.js';
 import {
   corsOriginCallback,
   HTTP_CORS_ALLOWED_HEADERS,
@@ -20,6 +21,8 @@ import {
 } from '#config/cors.js';
 
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', true);
 
 const corsOptions = {
   origin: corsOriginCallback,
@@ -39,6 +42,7 @@ app.use(cookieParser())
 app.use(
   morgan('combined', {
     stream: { write: message => logger.info(message.trim()) },
+    skip: req => req.path === '/health',
   })
 );
 
@@ -66,6 +70,9 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/applications', applicationsRoutes);
 app.use('/api/messaging', messagingRoutes);
 app.use('/api/test', testRoutes);
+
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 export default app;
 

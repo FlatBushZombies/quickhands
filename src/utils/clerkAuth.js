@@ -11,14 +11,29 @@ function splitSecretList(value) {
     .filter(Boolean);
 }
 
+let cachedSecretsSource = null;
+let cachedSecrets = null;
+
 export function getConfiguredClerkSecretKeys() {
+  const source = [
+    process.env.CLERK_SECRET_KEYS || "",
+    process.env.CLERK_ADDITIONAL_SECRET_KEYS || "",
+    process.env.CLERK_SECRET_KEY || "",
+  ].join("|");
+
+  if (cachedSecrets && cachedSecretsSource === source) {
+    return cachedSecrets;
+  }
+
   const secrets = [
     ...splitSecretList(process.env.CLERK_SECRET_KEYS),
     ...splitSecretList(process.env.CLERK_ADDITIONAL_SECRET_KEYS),
     ...splitSecretList(process.env.CLERK_SECRET_KEY),
   ];
 
-  return [...new Set(secrets)];
+  cachedSecretsSource = source;
+  cachedSecrets = [...new Set(secrets)];
+  return cachedSecrets;
 }
 
 export function getConfiguredClerkSecretCount() {
@@ -65,4 +80,3 @@ export async function verifyClerkToken(token) {
 
   throw aggregateError;
 }
-

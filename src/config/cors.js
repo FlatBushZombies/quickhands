@@ -13,6 +13,9 @@ export const HTTP_CORS_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTI
 export const HTTP_CORS_ALLOWED_HEADERS = ['Authorization', 'Content-Type'];
 export const SOCKET_CORS_METHODS = ['GET', 'POST', 'OPTIONS'];
 
+let cachedOriginsEnv = null;
+let cachedAllowedOrigins = null;
+
 function parseAllowedOrigins() {
   const raw = process.env.CLIENT_ORIGINS;
   if (!raw || raw.trim() === '') return DEFAULT_ORIGINS;
@@ -23,14 +26,22 @@ function parseAllowedOrigins() {
 }
 
 export function getAllowedOriginsList() {
-  return parseAllowedOrigins();
+  const currentEnv = process.env.CLIENT_ORIGINS || '';
+
+  if (cachedAllowedOrigins && cachedOriginsEnv === currentEnv) {
+    return cachedAllowedOrigins;
+  }
+
+  cachedOriginsEnv = currentEnv;
+  cachedAllowedOrigins = Object.freeze(parseAllowedOrigins());
+  return cachedAllowedOrigins;
 }
 
 /**
  * Express cors `origin` option: boolean | string | RegExp | (origin, cb) => void
  */
 export function corsOriginCallback(origin, callback) {
-  const allowed = parseAllowedOrigins();
+  const allowed = getAllowedOriginsList();
   if (allowed.includes('*')) {
     callback(null, true);
     return;
@@ -50,7 +61,7 @@ export function corsOriginCallback(origin, callback) {
  * Socket.IO v4 `cors.origin` accepts string | string[] | boolean | (origin, cb)
  */
 export function socketCorsOrigin() {
-  const allowed = parseAllowedOrigins();
+  const allowed = getAllowedOriginsList();
   if (allowed.includes('*')) return true;
   return (origin, callback) => {
     if (!origin) {

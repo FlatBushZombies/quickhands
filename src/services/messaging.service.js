@@ -1,12 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { neon } from "@neondatabase/serverless";
 import logger from "#config/logger.js";
+import { sql } from "#config/database.js";
 import {
   conversationIdForClerkPair,
   conversationIdForJobClerkPair,
 } from "#utils/conversationId.js";
-
-const sql = neon(process.env.DATABASE_URL);
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -88,6 +86,27 @@ function resolveConversationId({
   );
 }
 
+function withUpdatedConversation(conversation, senderClerkId, senderName, message) {
+  const participants = conversation.participants.map((participant) =>
+    participant.clerkId === senderClerkId
+      ? {
+          ...participant,
+          displayName: senderName || participant.displayName,
+        }
+      : participant
+  );
+
+  return {
+    ...conversation,
+    participants,
+    otherUser:
+      participants.find((participant) => participant.clerkId !== senderClerkId) || null,
+    lastMessageText: message.text,
+    lastMessageAt: message.createdAt,
+    updatedAt: message.createdAt,
+  };
+}
+
 async function upsertConversation({
   conversationType = "direct",
   jobId = null,
@@ -166,7 +185,19 @@ async function upsertConversation({
           messaging_conversations.participant_two_name
         ),
         updated_at = NOW()
-      RETURNING *;
+      RETURNING
+        id,
+        conversation_type,
+        job_id,
+        job_title,
+        participant_one_clerk_id,
+        participant_one_name,
+        participant_two_clerk_id,
+        participant_two_name,
+        last_message_text,
+        last_message_at,
+        created_at,
+        updated_at;
     `;
 
     return mapConversation(result[0], me);
@@ -213,7 +244,19 @@ export async function ensureJobConversation({
 export async function getConversationByIdForUser(conversationId, clerkId) {
   try {
     const result = await sql`
-      SELECT *
+      SELECT
+        id,
+        conversation_type,
+        job_id,
+        job_title,
+        participant_one_clerk_id,
+        participant_one_name,
+        participant_two_clerk_id,
+        participant_two_name,
+        last_message_text,
+        last_message_at,
+        created_at,
+        updated_at
       FROM messaging_conversations
       WHERE id = ${conversationId}
         AND (
@@ -236,7 +279,19 @@ export async function listConversationsForUser(clerkId, opts = {}) {
 
   try {
     const result = await sql`
-      SELECT *
+      SELECT
+        id,
+        conversation_type,
+        job_id,
+        job_title,
+        participant_one_clerk_id,
+        participant_one_name,
+        participant_two_clerk_id,
+        participant_two_name,
+        last_message_text,
+        last_message_at,
+        created_at,
+        updated_at
       FROM messaging_conversations
       WHERE
         participant_one_clerk_id = ${clerkId}
@@ -269,7 +324,14 @@ export async function listMessagesForConversation(conversationId, clerkId, opts 
   try {
     const rows = before
       ? await sql`
-          SELECT *
+          SELECT
+            id,
+            conversation_id,
+            sender_clerk_id,
+            sender_name,
+            text,
+            client_message_id,
+            created_at
           FROM messaging_messages
           WHERE conversation_id = ${conversationId}
             AND created_at < ${before.toISOString()}
@@ -277,7 +339,14 @@ export async function listMessagesForConversation(conversationId, clerkId, opts 
           LIMIT ${limit};
         `
       : await sql`
-          SELECT *
+          SELECT
+            id,
+            conversation_id,
+            sender_clerk_id,
+            sender_name,
+            text,
+            client_message_id,
+            created_at
           FROM messaging_messages
           WHERE conversation_id = ${conversationId}
           ORDER BY created_at DESC
@@ -333,24 +402,6 @@ export async function saveConversationMessage({
   }
 
   try {
-    if (clientMessageId) {
-      const existing = await sql`
-        SELECT *
-        FROM messaging_messages
-        WHERE conversation_id = ${conversationId}
-          AND client_message_id = ${clientMessageId}
-        LIMIT 1;
-      `;
-
-      if (existing.length > 0) {
-        return {
-          conversation,
-          message: mapMessage(existing[0]),
-          duplicate: true,
-        };
-      }
-    }
-
     const resolvedSenderName = resolveSenderName(
       conversation,
       senderClerkId,
@@ -376,35 +427,78 @@ export async function saveConversationMessage({
         ${clientMessageId || null},
         NOW()
       )
-      RETURNING *;
+      ON CONFLICT (conversation_id, client_message_id)
+      DO NOTHING
+      RETURNING
+        id,
+        conversation_id,
+        sender_clerk_id,
+        sender_name,
+        text,
+        client_message_id,
+        created_at;
     `;
 
-    await sql`
-      UPDATE messaging_conversations
-      SET
-        last_message_text = ${trimmedText},
-        last_message_at = ${inserted[0].created_at},
-        updated_at = ${inserted[0].created_at},
-        participant_one_name = CASE
-          WHEN participant_one_clerk_id = ${senderClerkId}
-          THEN COALESCE(${resolvedSenderName}, participant_one_name)
-          ELSE participant_one_name
-        END,
-        participant_two_name = CASE
-          WHEN participant_two_clerk_id = ${senderClerkId}
-          THEN COALESCE(${resolvedSenderName}, participant_two_name)
-          ELSE participant_two_name
-        END
-      WHERE id = ${conversationId};
-    `;
+    let duplicate = false;
+    let messageRow = inserted[0] || null;
 
-    const refreshedConversation =
-      (await getConversationByIdForUser(conversationId, senderClerkId)) || conversation;
+    if (!messageRow && clientMessageId) {
+      duplicate = true;
+      const existing = await sql`
+        SELECT
+          id,
+          conversation_id,
+          sender_clerk_id,
+          sender_name,
+          text,
+          client_message_id,
+          created_at
+        FROM messaging_messages
+        WHERE conversation_id = ${conversationId}
+          AND client_message_id = ${clientMessageId}
+        LIMIT 1;
+      `;
+
+      if (existing.length === 0) {
+        throw new Error("Failed to save message");
+      }
+
+      messageRow = existing[0];
+    }
+
+    if (!messageRow) {
+      throw new Error("Failed to save message");
+    }
+
+    const message = mapMessage(messageRow);
+
+    if (!duplicate) {
+      await sql`
+        UPDATE messaging_conversations
+        SET
+          last_message_text = ${message.text},
+          last_message_at = ${message.createdAt},
+          updated_at = ${message.createdAt},
+          participant_one_name = CASE
+            WHEN participant_one_clerk_id = ${senderClerkId}
+            THEN COALESCE(${resolvedSenderName}, participant_one_name)
+            ELSE participant_one_name
+          END,
+          participant_two_name = CASE
+            WHEN participant_two_clerk_id = ${senderClerkId}
+            THEN COALESCE(${resolvedSenderName}, participant_two_name)
+            ELSE participant_two_name
+          END
+        WHERE id = ${conversationId};
+      `;
+    }
 
     return {
-      conversation: refreshedConversation,
-      message: mapMessage(inserted[0]),
-      duplicate: false,
+      conversation: duplicate
+        ? conversation
+        : withUpdatedConversation(conversation, senderClerkId, resolvedSenderName, message),
+      message,
+      duplicate,
     };
   } catch (error) {
     logger.error(`saveConversationMessage error for ${conversationId}:`, error);

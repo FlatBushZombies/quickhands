@@ -1,7 +1,22 @@
-import { neon } from "@neondatabase/serverless";
 import logger from "#config/logger.js";
+import { sql } from "#config/database.js";
 
-const sql = neon(process.env.DATABASE_URL);
+function parseJsonArray(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value !== "string" || value.trim() === "") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 // Helper to convert snake_case -> camelCase
 function transformJob(job) {
@@ -15,24 +30,38 @@ function transformJob(job) {
     specialistChoice: job.specialist_choice,
     additionalInfo: job.additional_info,
     documents: job.documents,
-    // User information
     clerkId: job.clerk_id,
     userName: job.user_name,
     userAvatar: job.user_avatar,
     createdAt: job.created_at,
-    updatedAt: job.updated_at
+    updatedAt: job.updated_at,
   };
 }
 
 export async function getJobById(jobId) {
   const id = Number(jobId);
-  if (isNaN(id)) throw new Error(`Invalid job ID: ${jobId}`);
+  if (Number.isNaN(id)) throw new Error(`Invalid job ID: ${jobId}`);
 
   try {
     const result = await sql`
-      SELECT *
+      SELECT
+        id,
+        service_type,
+        selected_services,
+        start_date,
+        end_date,
+        max_price,
+        specialist_choice,
+        additional_info,
+        documents,
+        clerk_id,
+        user_name,
+        user_avatar,
+        created_at,
+        updated_at
       FROM service_request
-      WHERE id = ${id};
+      WHERE id = ${id}
+      LIMIT 1;
     `;
 
     if (!result || result.length === 0) {
@@ -48,68 +77,58 @@ export async function getJobById(jobId) {
 
 export async function getAllJobs(clerkId = null) {
   try {
-    let result;
-    
-    if (clerkId) {
-      // Filter by specific user's jobs
-      result = await sql`
-        SELECT
-          id,
-          service_type,
-          selected_services,
-          start_date,
-          end_date,
-          max_price,
-          specialist_choice,
-          additional_info,
-          documents,
-          clerk_id,
-          user_name,
-          user_avatar,
-          created_at
-        FROM service_request
-        WHERE clerk_id = ${clerkId}
-        ORDER BY created_at DESC;
-      `;
-    } else {
-      // Get all jobs
-      result = await sql`
-        SELECT
-          id,
-          service_type,
-          selected_services,
-          start_date,
-          end_date,
-          max_price,
-          specialist_choice,
-          additional_info,
-          documents,
-          clerk_id,
-          user_name,
-          user_avatar,
-          created_at
-        FROM service_request
-        ORDER BY created_at DESC;
-      `;
-    }
+    const result = clerkId
+      ? await sql`
+          SELECT
+            id,
+            service_type,
+            selected_services,
+            start_date,
+            end_date,
+            max_price,
+            specialist_choice,
+            additional_info,
+            documents,
+            clerk_id,
+            user_name,
+            user_avatar,
+            created_at,
+            updated_at
+          FROM service_request
+          WHERE clerk_id = ${clerkId}
+          ORDER BY created_at DESC;
+        `
+      : await sql`
+          SELECT
+            id,
+            service_type,
+            selected_services,
+            start_date,
+            end_date,
+            max_price,
+            specialist_choice,
+            additional_info,
+            documents,
+            clerk_id,
+            user_name,
+            user_avatar,
+            created_at,
+            updated_at
+          FROM service_request
+          ORDER BY created_at DESC;
+        `;
 
     logger.info(`Fetched ${result.length} service requests successfully`);
-    logger.debug("getAllJobs raw result:", result);
-
-    return result.map(job => ({
+    return result.map((job) => ({
       id: job.id,
       serviceType: job.service_type,
-      selectedServices: Array.isArray(job.selected_services)
-        ? job.selected_services
-        : JSON.parse(job.selected_services || '[]'),
+      selectedServices: parseJsonArray(job.selected_services),
       startDate: job.start_date,
       endDate: job.end_date,
       maxPrice: Number(job.max_price) || 0,
       specialistChoice: job.specialist_choice,
       additionalInfo: job.additional_info,
-      documents: Array.isArray(job.documents)
-        ? job.documents
-        : JSON.parse(job.documents || '[]'),
+      documents: parseJsonArray(job.documents),
       clerkId: job.clerk_id,
       userName: job.user_name || "Anonymous",
       userAvatar: job.user_avatar || null,
@@ -121,7 +140,6 @@ export async function getAllJobs(clerkId = null) {
   }
 }
 
-
 export async function createJob(jobData) {
   const {
     serviceType,
@@ -132,10 +150,9 @@ export async function createJob(jobData) {
     specialistChoice,
     additionalInfo,
     documents,
-    // User information
     clerkId,
     userName,
-    userAvatar
+    userAvatar,
   } = jobData;
 
   try {
@@ -157,8 +174,23 @@ export async function createJob(jobData) {
         ${userName},
         ${userAvatar}
       )
-      RETURNING *;
+      RETURNING
+        id,
+        service_type,
+        selected_services,
+        start_date,
+        end_date,
+        max_price,
+        specialist_choice,
+        additional_info,
+        documents,
+        clerk_id,
+        user_name,
+        user_avatar,
+        created_at,
+        updated_at;
     `;
+
     logger.info("New service request created successfully");
     return transformJob(result[0]);
   } catch (error) {
@@ -172,70 +204,127 @@ export async function searchJobs(filters) {
     const {
       serviceType,
       selectedService,
-      startDate,
-      endDate,
       maxPrice,
-      specialistChoice,
-      additionalInfo,
       limit = 50,
       offset = 0,
-      sortBy = 'start_date',
-      sortOrder = 'DESC'
     } = filters;
 
     logger.info(`Executing search with filters: ${JSON.stringify(filters)}`);
 
-    // For now, let's implement a simple search that works
-    // We'll just return all jobs with pagination and basic filtering
-    
-    let result;
-    let countResult;
-    
+    let jobsQuery;
+    let countQuery;
+
     if (serviceType) {
-      // Search by service type
-      result = await sql`
-        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents, clerk_id, user_name, user_avatar, created_at, updated_at
+      const pattern = `%${serviceType}%`;
+      jobsQuery = sql`
+        SELECT
+          id,
+          service_type,
+          selected_services,
+          start_date,
+          end_date,
+          max_price,
+          specialist_choice,
+          additional_info,
+          documents,
+          clerk_id,
+          user_name,
+          user_avatar,
+          created_at,
+          updated_at
         FROM service_request
-        WHERE service_type ILIKE ${'%' + serviceType + '%'}
+        WHERE service_type ILIKE ${pattern}
         ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
-      countResult = await sql`SELECT COUNT(*) as total FROM service_request WHERE service_type ILIKE ${'%' + serviceType + '%'}`;
-    }
-    else if (maxPrice) {
-      // Search by max price
-      result = await sql`
-        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents, clerk_id, user_name, user_avatar, created_at, updated_at
+      countQuery = sql`
+        SELECT COUNT(*) AS total
+        FROM service_request
+        WHERE service_type ILIKE ${pattern}
+      `;
+    } else if (maxPrice !== undefined) {
+      jobsQuery = sql`
+        SELECT
+          id,
+          service_type,
+          selected_services,
+          start_date,
+          end_date,
+          max_price,
+          specialist_choice,
+          additional_info,
+          documents,
+          clerk_id,
+          user_name,
+          user_avatar,
+          created_at,
+          updated_at
         FROM service_request
         WHERE max_price <= ${maxPrice}
         ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
-      countResult = await sql`SELECT COUNT(*) as total FROM service_request WHERE max_price <= ${maxPrice}`;
-    }
-    else if (selectedService) {
-      // Search by selected service
-      result = await sql`
-        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents, clerk_id, user_name, user_avatar, created_at, updated_at
+      countQuery = sql`
+        SELECT COUNT(*) AS total
+        FROM service_request
+        WHERE max_price <= ${maxPrice}
+      `;
+    } else if (selectedService) {
+      jobsQuery = sql`
+        SELECT
+          id,
+          service_type,
+          selected_services,
+          start_date,
+          end_date,
+          max_price,
+          specialist_choice,
+          additional_info,
+          documents,
+          clerk_id,
+          user_name,
+          user_avatar,
+          created_at,
+          updated_at
         FROM service_request
         WHERE selected_services::jsonb ? ${selectedService}
         ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
-      countResult = await sql`SELECT COUNT(*) as total FROM service_request WHERE selected_services::jsonb ? ${selectedService}`;
-    }
-    else {
-      // No specific filters - return all with pagination
-      result = await sql`
-        SELECT id, service_type, selected_services, start_date, end_date, max_price, specialist_choice, additional_info, documents, clerk_id, user_name, user_avatar, created_at, updated_at
+      countQuery = sql`
+        SELECT COUNT(*) AS total
+        FROM service_request
+        WHERE selected_services::jsonb ? ${selectedService}
+      `;
+    } else {
+      jobsQuery = sql`
+        SELECT
+          id,
+          service_type,
+          selected_services,
+          start_date,
+          end_date,
+          max_price,
+          specialist_choice,
+          additional_info,
+          documents,
+          clerk_id,
+          user_name,
+          user_avatar,
+          created_at,
+          updated_at
         FROM service_request
         ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
-      countResult = await sql`SELECT COUNT(*) as total FROM service_request`;
+      countQuery = sql`
+        SELECT COUNT(*) AS total
+        FROM service_request
+      `;
     }
-    
-    const total = parseInt(countResult[0].total);
+
+    const [result, countResult] = await Promise.all([jobsQuery, countQuery]);
+    const total = Number.parseInt(countResult[0]?.total, 10) || 0;
 
     logger.info(`Search returned ${result.length} results out of ${total} total matches`);
 
@@ -243,12 +332,11 @@ export async function searchJobs(filters) {
       jobs: result.map(transformJob),
       pagination: {
         total,
-        limit: parseInt(limit),
-        offset: parseInt(offset),
-        hasMore: (parseInt(offset) + parseInt(limit)) < total
-      }
+        limit: Number.parseInt(limit, 10),
+        offset: Number.parseInt(offset, 10),
+        hasMore: Number.parseInt(offset, 10) + Number.parseInt(limit, 10) < total,
+      },
     };
-
   } catch (error) {
     logger.error("Database error (search):", error);
     throw new Error("Database query failed while searching service requests.");

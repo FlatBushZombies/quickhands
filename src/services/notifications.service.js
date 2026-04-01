@@ -1,7 +1,26 @@
-import { neon } from '@neondatabase/serverless';
 import logger from '#config/logger.js';
+import { sql } from '#config/database.js';
 
-const sql = neon(process.env.DATABASE_URL);
+async function resolveNotificationUserId(userId) {
+  const numericUserId = Number(userId);
+
+  if (Number.isInteger(numericUserId)) {
+    return numericUserId;
+  }
+
+  const result = await sql`
+    SELECT id
+    FROM users
+    WHERE clerk_id = ${String(userId)}
+    LIMIT 1;
+  `;
+
+  if (result.length === 0) {
+    throw new Error('Notification recipient not found');
+  }
+
+  return result[0].id;
+}
 
 function transformNotification(row) {
   return {
@@ -16,13 +35,14 @@ function transformNotification(row) {
 
 export async function createNotification({ userId, jobId, message }) {
   try {
+    const resolvedUserId = await resolveNotificationUserId(userId);
     const result = await sql`
       INSERT INTO notifications (user_id, job_id, message, read, created_at)
-      VALUES (${userId}, ${jobId}, ${message}, false, NOW())
+      VALUES (${resolvedUserId}, ${jobId}, ${message}, false, NOW())
       RETURNING *;
     `;
     const notif = transformNotification(result[0]);
-    logger.info(`Notification created id=${notif.id} userId=${userId} jobId=${jobId}`);
+    logger.info(`Notification created id=${notif.id} userId=${resolvedUserId} jobId=${jobId}`);
     return notif;
   } catch (e) {
     logger.error('createNotification DB error', e);

@@ -1,5 +1,30 @@
-import { getAllJobs, createJob, searchJobs, getJobById } from "#services/jobs.service.js";
 import logger from "#config/logger.js";
+import { emitToUser } from "#config/socket.js";
+import { createNotification } from "#services/notifications.service.js";
+import { findUsersMatchingJob } from "#services/match.service.js";
+import {
+  getAllJobs,
+  createJob,
+  searchJobs,
+  getJobById,
+} from "#services/jobs.service.js";
+
+function parseStringArray(value) {
+  if (Array.isArray(value)) {
+    return value.filter(Boolean);
+  }
+
+  if (typeof value !== "string" || value.trim() === "") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Get a single job by ID
@@ -47,7 +72,7 @@ export async function getJobs(req, res) {
   try {
     const { clerkId } = req.query;
     const jobs = await getAllJobs(clerkId);
-    logger.info(`Successfully retrieved ${clerkId ? 'user' : 'all'} job requests`);
+    logger.info(`Successfully retrieved ${clerkId ? "user" : "all"} job requests`);
     return res.status(200).json({
       success: true,
       message: "Service requests fetched successfully",
@@ -65,7 +90,7 @@ export async function getJobs(req, res) {
 
 /**
  * Create a new job request
- * ✅ Uses req.user populated from Clerk JWT middleware
+ * Uses req.user populated from Clerk JWT middleware.
  */
 export async function createJobController(req, res) {
   try {
@@ -83,11 +108,11 @@ export async function createJobController(req, res) {
       userAvatar: bodyUserAvatar,
     } = req.body;
 
-    // Prioritize body data over middleware (client sends correct Clerk info)
     const { user } = req;
     const clerkId = bodyClerkId || user?.clerkId;
     const userName = bodyUserName || user?.userName || "Anonymous";
-    const userAvatar = bodyUserAvatar !== undefined ? bodyUserAvatar : (user?.userAvatar || null);
+    const userAvatar =
+      bodyUserAvatar !== undefined ? bodyUserAvatar : (user?.userAvatar || null);
 
     if (!serviceType || !startDate || !endDate) {
       return res.status(400).json({
@@ -103,15 +128,18 @@ export async function createJobController(req, res) {
       });
     }
 
+    const normalizedSelectedServices = parseStringArray(selectedServices);
+    const normalizedDocuments = parseStringArray(documents);
+
     const jobData = {
       serviceType,
-      selectedServices: JSON.stringify(selectedServices || []),
+      selectedServices: JSON.stringify(normalizedSelectedServices),
       startDate,
       endDate,
       maxPrice: Number(maxPrice) || 0,
       specialistChoice: specialistChoice || null,
       additionalInfo: additionalInfo || null,
-      documents: JSON.stringify(documents || []),
+      documents: JSON.stringify(normalizedDocuments),
       clerkId,
       userName,
       userAvatar,
@@ -120,28 +148,46 @@ export async function createJobController(req, res) {
     const newJob = await createJob(jobData);
     logger.info(`Created new service request: ${newJob.id} by user: ${clerkId} (${userName})`);
 
-    // Trigger notifications to matched users
     try {
-      const { findUsersMatchingJob } = await import('#services/match.service.js');
-      const { createNotification } = await import('#services/notifications.service.js');
-      const { emitToUser } = await import('#config/socket.js');
-
-      const selectedServicesArr = Array.isArray(selectedServices)
-        ? selectedServices
-        : selectedServices
-        ? JSON.parse(selectedServices).filter(Boolean)
-        : [];
-
-      const matchedUsers = await findUsersMatchingJob({ serviceType, selectedServices: selectedServicesArr });
+      const matchedUsers = await findUsersMatchingJob({
+        serviceType,
+        selectedServices: normalizedSelectedServices,
+      });
 
       const message = `New job posted: ${serviceType}`;
-      for (const u of matchedUsers) {
-        const notif = await createNotification({ userId: u.id, jobId: newJob.id, message });
-        emitToUser(u.id, 'notification:new', { notification: notif });
+      const notificationResults = await Promise.allSettled(
+        matchedUsers.map(async (matchedUser) => {
+          const notification = await createNotification({
+            userId: matchedUser.id,
+            jobId: newJob.id,
+            message,
+          });
+
+          emitToUser(matchedUser.clerkId, "notification:new", {
+            notification,
+          });
+
+          return notification;
+        })
+      );
+
+      const deliveredCount = notificationResults.filter(
+        (result) => result.status === "fulfilled"
+      ).length;
+
+      const failedCount = notificationResults.length - deliveredCount;
+
+      logger.info(
+        `Notifications sent for jobId=${newJob.id} to ${deliveredCount}/${matchedUsers.length} matched users`
+      );
+
+      if (failedCount > 0) {
+        logger.warn(
+          `Notification fan-out completed with ${failedCount} failures for jobId=${newJob.id}`
+        );
       }
-      logger.info(`Notifications sent for jobId=${newJob.id} to ${matchedUsers.length} users`);
     } catch (notifyErr) {
-      logger.error('Error triggering notifications for new job', notifyErr);
+      logger.error("Error triggering notifications for new job", notifyErr);
       // Do not fail request if notifications fail
     }
 
@@ -165,28 +211,29 @@ export async function createJobController(req, res) {
  */
 export async function searchJobsController(req, res) {
   try {
-    // Handle both 'q' (general query) and specific filters
     const queryParam = req.query.q;
-    
+
     const filters = {
-      serviceType: req.query.serviceType || queryParam, // Use 'q' as serviceType if provided
+      serviceType: req.query.serviceType || queryParam,
       selectedService: req.query.selectedService,
       startDate: req.query.startDate,
       endDate: req.query.endDate,
       maxPrice: req.query.maxPrice ? parseFloat(req.query.maxPrice) : undefined,
       specialistChoice: req.query.specialistChoice,
       additionalInfo: req.query.additionalInfo,
-      limit: req.query.limit ? parseInt(req.query.limit) : 50,
-      offset: req.query.offset ? parseInt(req.query.offset) : 0,
-      sortBy: req.query.sortBy || 'start_date',
-      sortOrder: req.query.sortOrder || 'DESC'
+      limit: req.query.limit ? parseInt(req.query.limit, 10) : 50,
+      offset: req.query.offset ? parseInt(req.query.offset, 10) : 0,
+      sortBy: req.query.sortBy || "start_date",
+      sortOrder: req.query.sortOrder || "DESC",
     };
 
-    Object.keys(filters).forEach(k => filters[k] === undefined && delete filters[k]);
+    Object.keys(filters).forEach((key) => filters[key] === undefined && delete filters[key]);
 
     const result = await searchJobs(filters);
 
-    logger.info(`Search completed: ${result.jobs.length} jobs found with filters: ${JSON.stringify(filters)}`);
+    logger.info(
+      `Search completed: ${result.jobs.length} jobs found with filters: ${JSON.stringify(filters)}`
+    );
 
     return res.status(200).json({
       success: true,

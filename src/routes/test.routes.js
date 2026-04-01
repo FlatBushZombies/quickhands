@@ -1,13 +1,11 @@
 import express from 'express';
+import { sql } from '#config/database.js';
 
 const router = express.Router();
 
 // Test endpoint to verify deployment
 router.get('/test-apply', async (req, res) => {
   try {
-    const { neon } = await import('@neondatabase/serverless');
-    const sql = neon(process.env.DATABASE_URL);
-    
     // Check if quotation and conditions columns exist
     const columns = await sql`
       SELECT column_name 

@@ -1,7 +1,5 @@
-import { neon } from "@neondatabase/serverless";
 import logger from "#config/logger.js";
-
-const sql = neon(process.env.DATABASE_URL);
+import { sql } from "#config/database.js";
 
 /**
  * Transform database user object to camelCase for API response

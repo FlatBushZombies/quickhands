@@ -1,6 +1,7 @@
 import {
   createApplication,
   getApplicationsByJobId,
+  getApplicationCountByJobId,
   getApplicationsByFreelancerId,
   updateApplicationStatus,
   getAllApplications,
@@ -84,7 +85,11 @@ export async function applyToJob(req, res) {
       });
     }
 
-    const job = await getJobById(jobId);
+    const [job, existingApplicationsCount] = await Promise.all([
+      getJobById(jobId),
+      getApplicationCountByJobId(Number(jobId)),
+    ]);
+
     if (!job) {
       logger.warn(`[Apply] Job ${jobId} not found`);
       return res.status(404).json({
@@ -102,8 +107,7 @@ export async function applyToJob(req, res) {
       });
     }
 
-    const existingApplications = await getApplicationsByJobId(jobId);
-    if (existingApplications.length >= 5) {
+    if (existingApplicationsCount >= 5) {
       logger.warn(`[Apply] Job ${jobId} already has 5 applications. Rejecting new application.`);
       return res.status(400).json({
         success: false,

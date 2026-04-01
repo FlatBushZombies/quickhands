@@ -1,10 +1,12 @@
-import { neon } from '@neondatabase/serverless';
 import logger from '#config/logger.js';
-
-const sql = neon(process.env.DATABASE_URL);
+import { sql } from '#config/database.js';
 
 function normalizeTerm(t) {
   return String(t || '').trim().toLowerCase();
+}
+
+function escapeLikePattern(value) {
+  return String(value).replace(/[\\%_]/g, '\\$&');
 }
 
 export async function findUsersMatchingJob({ serviceType, selectedServices }) {
@@ -20,17 +22,22 @@ export async function findUsersMatchingJob({ serviceType, selectedServices }) {
       return [];
     }
 
-    // Fetch users with skills to filter in JS for simplicity/compatibility
-    const result = await sql`SELECT id, clerk_id, skills FROM users WHERE skills IS NOT NULL`;
+    const patterns = terms.map((term) => `%${escapeLikePattern(term)}%`);
+    const whereClause = patterns
+      .map((_, index) => `LOWER(skills) LIKE LOWER($${index + 1}) ESCAPE '\\'`)
+      .join(' OR ');
 
-    const matched = [];
-    for (const row of result) {
-      const skills = String(row.skills || '').toLowerCase();
-      const matches = terms.some(term => skills.includes(term));
-      if (matches) {
-        matched.push({ id: row.id, clerkId: row.clerk_id });
-      }
-    }
+    const result = await sql.query(
+      `
+        SELECT id, clerk_id
+        FROM users
+        WHERE skills IS NOT NULL
+          AND (${whereClause})
+      `,
+      patterns
+    );
+
+    const matched = result.map((row) => ({ id: row.id, clerkId: row.clerk_id }));
 
     logger.info(`findUsersMatchingJob: matched ${matched.length} users for terms=${JSON.stringify(terms)}`);
     return matched;

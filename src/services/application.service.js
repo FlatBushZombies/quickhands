@@ -1,13 +1,11 @@
-import { neon } from "@neondatabase/serverless";
 import logger from "#config/logger.js";
+import { sql } from "#config/database.js";
 import { conversationIdForJobClerkPair } from "#utils/conversationId.js";
 import {
   isMissingApplicationContactColumnError,
   normalizePhoneNumber,
   transformApplication,
 } from "#utils/applicationPresentation.js";
-
-const sql = neon(process.env.DATABASE_URL);
 
 function trimOptionalString(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -111,6 +109,21 @@ export async function getApplicationsByJobId(jobId) {
     return result.map((app) => transformApplication(app, { viewerRole: "client" }));
   } catch (error) {
     logger.error(`Error fetching applications for job ${jobId}:`, error);
+    throw error;
+  }
+}
+
+export async function getApplicationCountByJobId(jobId) {
+  try {
+    const result = await sql`
+      SELECT COUNT(*) AS total
+      FROM job_applications
+      WHERE job_id = ${jobId};
+    `;
+
+    return Number.parseInt(result[0]?.total, 10) || 0;
+  } catch (error) {
+    logger.error(`Error counting applications for job ${jobId}:`, error);
     throw error;
   }
 }
