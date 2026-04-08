@@ -23,18 +23,18 @@ function transformJob(job) {
   return {
     id: job.id,
     serviceType: job.service_type,
-    selectedServices: job.selected_services,
+    selectedServices: parseJsonArray(job.selected_services),
     startDate: job.start_date,
     endDate: job.end_date,
-    maxPrice: job.max_price,
+    maxPrice: Number(job.max_price) || 0,
     specialistChoice: job.specialist_choice,
     additionalInfo: job.additional_info,
-    documents: job.documents,
+    documents: parseJsonArray(job.documents),
     clerkId: job.clerk_id,
     userName: job.user_name,
     userAvatar: job.user_avatar,
     createdAt: job.created_at,
-    updatedAt: job.updated_at,
+    updatedAt: job.updated_at || null,
   };
 }
 
@@ -57,8 +57,7 @@ export async function getJobById(jobId) {
         clerk_id,
         user_name,
         user_avatar,
-        created_at,
-        updated_at
+        created_at
       FROM service_request
       WHERE id = ${id}
       LIMIT 1;
@@ -92,8 +91,7 @@ export async function getAllJobs(clerkId = null) {
             clerk_id,
             user_name,
             user_avatar,
-            created_at,
-            updated_at
+            created_at
           FROM service_request
           WHERE clerk_id = ${clerkId}
           ORDER BY created_at DESC;
@@ -112,28 +110,13 @@ export async function getAllJobs(clerkId = null) {
             clerk_id,
             user_name,
             user_avatar,
-            created_at,
-            updated_at
+            created_at
           FROM service_request
           ORDER BY created_at DESC;
         `;
 
     logger.info(`Fetched ${result.length} service requests successfully`);
-    return result.map((job) => ({
-      id: job.id,
-      serviceType: job.service_type,
-      selectedServices: parseJsonArray(job.selected_services),
-      startDate: job.start_date,
-      endDate: job.end_date,
-      maxPrice: Number(job.max_price) || 0,
-      specialistChoice: job.specialist_choice,
-      additionalInfo: job.additional_info,
-      documents: parseJsonArray(job.documents),
-      clerkId: job.clerk_id,
-      userName: job.user_name || "Anonymous",
-      userAvatar: job.user_avatar || null,
-      createdAt: job.created_at,
-    }));
+    return result.map(transformJob);
   } catch (error) {
     logger.error("Database error (fetch all jobs):", error);
     throw new Error("Database query failed while retrieving service requests.");
@@ -187,8 +170,7 @@ export async function createJob(jobData) {
         clerk_id,
         user_name,
         user_avatar,
-        created_at,
-        updated_at;
+        created_at;
     `;
 
     logger.info("New service request created successfully");
@@ -230,8 +212,7 @@ export async function searchJobs(filters) {
           clerk_id,
           user_name,
           user_avatar,
-          created_at,
-          updated_at
+          created_at
         FROM service_request
         WHERE service_type ILIKE ${pattern}
         ORDER BY created_at DESC
@@ -257,8 +238,7 @@ export async function searchJobs(filters) {
           clerk_id,
           user_name,
           user_avatar,
-          created_at,
-          updated_at
+          created_at
         FROM service_request
         WHERE max_price <= ${maxPrice}
         ORDER BY created_at DESC
@@ -284,8 +264,7 @@ export async function searchJobs(filters) {
           clerk_id,
           user_name,
           user_avatar,
-          created_at,
-          updated_at
+          created_at
         FROM service_request
         WHERE selected_services::jsonb ? ${selectedService}
         ORDER BY created_at DESC
@@ -311,8 +290,7 @@ export async function searchJobs(filters) {
           clerk_id,
           user_name,
           user_avatar,
-          created_at,
-          updated_at
+          created_at
         FROM service_request
         ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}

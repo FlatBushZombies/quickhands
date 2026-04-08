@@ -97,6 +97,23 @@ function resolveApplicantIdentity(req) {
   };
 }
 
+async function resolveApplicationJobContext(application) {
+  const jobFromApplication = application?.job || null;
+
+  if (
+    jobFromApplication?.clientClerkId &&
+    jobFromApplication?.serviceType
+  ) {
+    return {
+      clerkId: jobFromApplication.clientClerkId,
+      serviceType: jobFromApplication.serviceType,
+      userName: jobFromApplication.clientName || "Client",
+    };
+  }
+
+  return getJobById(application.jobId);
+}
+
 async function notifyApplicationUpdate({
   recipientClerkId,
   jobId,
@@ -370,7 +387,7 @@ export async function updateApplicationStatusController(req, res) {
       });
     }
 
-    const job = await getJobById(application.jobId);
+    const job = await resolveApplicationJobContext(application);
     if (user?.clerkId !== job.clerkId) {
       return res.status(403).json({
         success: false,
@@ -472,7 +489,7 @@ export async function shareApplicationContactController(req, res) {
       });
     }
 
-    const job = await getJobById(application.jobId);
+    const job = await resolveApplicationJobContext(application);
     if (user?.clerkId !== job.clerkId) {
       return res.status(403).json({
         success: false,
