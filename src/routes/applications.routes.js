@@ -5,6 +5,8 @@ import {
   getAllApplicationsController,
   getClientApplicationsController,
   shareApplicationContactController,
+  acceptApplicationController,
+  rejectApplicationController,
 } from "#controllers/application.controller.js";
 import { requireAuth } from "#middleware/clerk.middleware.js";
 
@@ -21,6 +23,15 @@ router.get("/client", requireAuth, getClientApplicationsController);
 
 // Update application status (client accepting/rejecting)
 router.patch("/:id/status", requireAuth, updateApplicationStatusController);
+router.patch("/:id/accept", requireAuth, acceptApplicationController);
+router.post("/:id/accept", requireAuth, acceptApplicationController);
+router.patch("/:id/reject", requireAuth, rejectApplicationController);
+router.post("/:id/reject", requireAuth, rejectApplicationController);
 router.patch("/:id/contact", requireAuth, shareApplicationContactController);
+router.post("/:id/contact", requireAuth, shareApplicationContactController);
+router.patch("/:id/share-contact", requireAuth, shareApplicationContactController);
+router.post("/:id/share-contact", requireAuth, shareApplicationContactController);
+router.patch("/:id/contact/share", requireAuth, shareApplicationContactController);
+router.post("/:id/contact/share", requireAuth, shareApplicationContactController);
 
 export default router;

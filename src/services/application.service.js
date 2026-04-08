@@ -11,6 +11,44 @@ function trimOptionalString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function buildApplicationContext(app, viewerRole) {
+  const transformedApplication = transformApplication(app, { viewerRole });
+  const hasConversationParticipants =
+    app.job_client_clerk_id && app.freelancer_clerk_id && app.job_id;
+  const hasJobContext =
+    app.job_service_type !== undefined ||
+    app.job_max_price !== undefined ||
+    app.job_start_date !== undefined ||
+    app.job_end_date !== undefined ||
+    app.job_client_name !== undefined ||
+    app.job_client_clerk_id !== undefined;
+
+  return {
+    ...transformedApplication,
+    ...(hasConversationParticipants
+      ? {
+          conversationId: conversationIdForJobClerkPair(
+            app.job_id,
+            app.freelancer_clerk_id,
+            app.job_client_clerk_id
+          ),
+        }
+      : {}),
+    ...(hasJobContext
+      ? {
+          job: {
+            serviceType: app.job_service_type || null,
+            maxPrice: Number(app.job_max_price) || 0,
+            startDate: app.job_start_date || null,
+            endDate: app.job_end_date || null,
+            clientName: app.job_client_name || null,
+            clientClerkId: app.job_client_clerk_id || null,
+          },
+        }
+      : {}),
+  };
+}
+
 /**
  * Create a new job application
  */
@@ -150,22 +188,7 @@ export async function getApplicationsByFreelancerId(clerkId) {
     `;
 
     logger.info(`Retrieved ${result.length} applications for freelancer ${clerkId}`);
-    return result.map((app) => ({
-      ...transformApplication(app, { viewerRole: "freelancer" }),
-      conversationId: conversationIdForJobClerkPair(
-        app.job_id,
-        app.freelancer_clerk_id,
-        app.job_client_clerk_id
-      ),
-      job: {
-        serviceType: app.job_service_type,
-        maxPrice: app.job_max_price,
-        startDate: app.job_start_date,
-        endDate: app.job_end_date,
-        clientName: app.job_client_name,
-        clientClerkId: app.job_client_clerk_id,
-      },
-    }));
+    return result.map((app) => buildApplicationContext(app, "freelancer"));
   } catch (error) {
     logger.error(`Error fetching applications for freelancer ${clerkId}:`, error);
     throw error;
@@ -227,7 +250,7 @@ export async function getApplicationById(applicationId, options = {}) {
       return null;
     }
 
-    return transformApplication(result[0], { viewerRole: options.viewerRole || "admin" });
+    return buildApplicationContext(result[0], options.viewerRole || "admin");
   } catch (error) {
     logger.error(`Error fetching application ${applicationId}:`, error);
     throw error;
@@ -275,6 +298,39 @@ export async function updateApplicationClientContact(
     }
 
     logger.error(`Error updating contact details for application ${applicationId}:`, error);
+    throw error;
+  }
+}
+
+export async function clearApplicationClientContact(applicationId) {
+  try {
+    const result = await sql`
+      UPDATE job_applications
+      SET
+        client_contact_phone = NULL,
+        client_contact_name = NULL,
+        contact_release_notes = NULL,
+        contact_shared_at = NULL,
+        contact_shared_by_clerk_id = NULL,
+        updated_at = NOW()
+      WHERE id = ${applicationId}
+      RETURNING *;
+    `;
+
+    if (result.length === 0) {
+      throw new Error("Application not found");
+    }
+
+    logger.info(`Application ${applicationId} contact details cleared`);
+    return getApplicationById(applicationId, { viewerRole: "admin" });
+  } catch (error) {
+    if (isMissingApplicationContactColumnError(error)) {
+      throw new Error(
+        "Database migration required before sharing phone numbers. Run migrations/add_application_contact_fields.sql"
+      );
+    }
+
+    logger.error(`Error clearing contact details for application ${applicationId}:`, error);
     throw error;
   }
 }
@@ -356,14 +412,7 @@ export async function getApplicationsForClient(clerkId) {
       }
 
       const jobEntry = jobsMap.get(jobId);
-      jobEntry.applications.push({
-        ...transformApplication(app, { viewerRole: "client" }),
-        conversationId: conversationIdForJobClerkPair(
-          app.job_id,
-          app.freelancer_clerk_id,
-          app.job_client_clerk_id
-        ),
-      });
+      jobEntry.applications.push(buildApplicationContext(app, "client"));
 
       jobEntry.applicationSummary.total += 1;
       if (jobEntry.applicationSummary[app.status] !== undefined) {

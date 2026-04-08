@@ -8,6 +8,7 @@ import {
   getApplicationsForClient,
   getApplicationById,
   updateApplicationClientContact,
+  clearApplicationClientContact,
 } from "#services/application.service.js";
 import { getJobById } from "#services/jobs.service.js";
 import { createNotification } from "#services/notifications.service.js";
@@ -15,8 +16,66 @@ import { ensureJobConversation } from "#services/messaging.service.js";
 import { emitToUser } from "#config/socket.js";
 import logger from "#config/logger.js";
 
+const APPLICATION_STATUS_ALIASES = {
+  pending: "pending",
+  accept: "accepted",
+  accepted: "accepted",
+  approve: "accepted",
+  approved: "accepted",
+  reject: "rejected",
+  rejected: "rejected",
+  decline: "rejected",
+  declined: "rejected",
+};
+
 function trimOptionalString(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function pickFirstProvidedString(...values) {
+  for (const value of values) {
+    const trimmedValue = trimOptionalString(value);
+    if (trimmedValue) {
+      return trimmedValue;
+    }
+  }
+
+  return null;
+}
+
+export function normalizeApplicationStatus(status) {
+  const normalizedStatus = trimOptionalString(status).toLowerCase();
+  return APPLICATION_STATUS_ALIASES[normalizedStatus] || null;
+}
+
+export function resolveApplicationContactPayload(payload = {}) {
+  return {
+    phoneNumber: pickFirstProvidedString(
+      payload.phoneNumber,
+      payload.clientPhoneNumber,
+      payload.contactPhoneNumber,
+      payload.contactPhone,
+      payload.contactNumber,
+      payload.phone,
+      payload.mobileNumber,
+      payload.client_contact_phone
+    ),
+    contactName: pickFirstProvidedString(
+      payload.contactName,
+      payload.clientName,
+      payload.contactPerson,
+      payload.contactPersonName,
+      payload.client_contact_name
+    ),
+    contactInstructions: pickFirstProvidedString(
+      payload.contactInstructions,
+      payload.instructions,
+      payload.contactNotes,
+      payload.contactReleaseNotes,
+      payload.notes,
+      payload.contact_release_notes
+    ),
+  };
 }
 
 function resolveApplicantIdentity(req) {
@@ -286,18 +345,19 @@ export async function getMyApplications(req, res) {
 export async function updateApplicationStatusController(req, res) {
   try {
     const { id: applicationId } = req.params;
+    const { status } = req.body || {};
+    const normalizedStatus = normalizeApplicationStatus(status);
     const {
-      status,
-      clientPhoneNumber = null,
-      contactName = null,
-      contactInstructions = null,
-    } = req.body || {};
+      phoneNumber: resolvedPhoneNumber,
+      contactName,
+      contactInstructions,
+    } = resolveApplicationContactPayload(req.body);
     const { user } = req;
 
-    if (!status) {
+    if (!normalizedStatus) {
       return res.status(400).json({
         success: false,
-        message: "Status is required",
+        message: "Status must be one of: pending, accept, accepted, reject, rejected",
       });
     }
 
@@ -318,21 +378,26 @@ export async function updateApplicationStatusController(req, res) {
       });
     }
 
-    let updatedApplication = await updateApplicationStatus(applicationId, status);
+    let updatedApplication = await updateApplicationStatus(applicationId, normalizedStatus);
     let contactSharedNow = false;
 
-    if (status === "accepted" && clientPhoneNumber) {
+    if (normalizedStatus === "accepted" && resolvedPhoneNumber) {
       updatedApplication = await updateApplicationClientContact(applicationId, {
-        phoneNumber: clientPhoneNumber,
+        phoneNumber: resolvedPhoneNumber,
         contactName,
         contactInstructions,
         sharedByClerkId: user?.clerkId || null,
       });
       contactSharedNow = true;
+    } else if (
+      normalizedStatus !== "accepted" &&
+      application.contactExchange?.readyForDirectContact
+    ) {
+      updatedApplication = await clearApplicationClientContact(applicationId);
     }
 
     const statusMessage =
-      status === "accepted"
+      normalizedStatus === "accepted"
         ? contactSharedNow
           ? `Your application for "${job.serviceType}" has been accepted and the client shared a phone number for direct contact.`
           : `Your application for "${job.serviceType}" has been accepted. The client can now share a phone number for direct contact.`
@@ -353,7 +418,7 @@ export async function updateApplicationStatusController(req, res) {
       success: true,
       message: "Application status updated successfully",
       data: updatedApplication,
-      ...(status === "accepted" && !updatedApplication.contactExchange.readyForDirectContact
+      ...(normalizedStatus === "accepted" && !updatedApplication.contactExchange.readyForDirectContact
         ? {
             nextStep: {
               action: "share_client_phone_number",
@@ -386,14 +451,12 @@ export async function shareApplicationContactController(req, res) {
     const { id: applicationId } = req.params;
     const {
       phoneNumber,
-      clientPhoneNumber = null,
-      contactName = null,
-      contactInstructions = null,
-    } = req.body || {};
+      contactName,
+      contactInstructions,
+    } = resolveApplicationContactPayload(req.body);
     const { user } = req;
-    const resolvedPhoneNumber = phoneNumber || clientPhoneNumber;
 
-    if (!resolvedPhoneNumber) {
+    if (!phoneNumber) {
       return res.status(400).json({
         success: false,
         message: "Phone number is required",
@@ -425,7 +488,7 @@ export async function shareApplicationContactController(req, res) {
     }
 
     const updatedApplication = await updateApplicationClientContact(applicationId, {
-      phoneNumber: resolvedPhoneNumber,
+      phoneNumber,
       contactName,
       contactInstructions,
       sharedByClerkId: user?.clerkId || null,
@@ -459,6 +522,24 @@ export async function shareApplicationContactController(req, res) {
       message: error.message || "Failed to share contact details",
     });
   }
+}
+
+export async function acceptApplicationController(req, res) {
+  req.body = {
+    ...(req.body || {}),
+    status: "accepted",
+  };
+
+  return updateApplicationStatusController(req, res);
+}
+
+export async function rejectApplicationController(req, res) {
+  req.body = {
+    ...(req.body || {}),
+    status: "rejected",
+  };
+
+  return updateApplicationStatusController(req, res);
 }
 
 /**
