@@ -1,15 +1,13 @@
 import express from 'express';
-import { createOrRegisterUser, getUserProfileByClerkId, updateUserOnboarding } from '#controllers/user.controller.js';
+import { createOrRegisterUser, getUserProfileByClerkId, getUserProfileByQuery, updateUserOnboarding, updateUserLocation } from '#controllers/user.controller.js';
+import { requireAuth } from '#middleware/clerk.middleware.js';
 
 const router = express.Router();
 
-// POST /api/user - initial creation from Clerk sign-up / OAuth
 router.post('/', createOrRegisterUser);
-
-// GET /api/user/:clerkId - fetch profile & onboarding state
+router.get('/get', getUserProfileByQuery);
 router.get('/:clerkId', getUserProfileByClerkId);
-
-// POST /api/user/update - onboarding/profile updates
 router.post('/update', updateUserOnboarding);
+router.patch('/location', requireAuth, updateUserLocation);
 
 export default router;

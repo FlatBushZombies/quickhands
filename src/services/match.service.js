@@ -1,21 +1,26 @@
 import logger from '#config/logger.js';
 import { sql } from '#config/database.js';
+import { annotateLocationMatch, hasCoordinates, normalizeLocationPayload } from '#utils/location.js';
 
-function normalizeTerm(t) {
-  return String(t || '').trim().toLowerCase();
+function normalizeTerm(term) {
+  return String(term || '').trim().toLowerCase();
 }
 
 function escapeLikePattern(value) {
   return String(value).replace(/[\\%_]/g, '\\$&');
 }
 
-export async function findUsersMatchingJob({ serviceType, selectedServices }) {
+function buildMetadataLocation(metadata) {
+  const safeMetadata = metadata && typeof metadata === "object" ? metadata : {};
+  return normalizeLocationPayload(safeMetadata.location || {});
+}
+
+export async function findUsersMatchingJob({ serviceType, selectedServices, jobLocation, radiusKm }) {
   try {
     const baseTerms = [];
     if (serviceType) baseTerms.push(serviceType);
     if (Array.isArray(selectedServices)) baseTerms.push(...selectedServices);
 
-    // Deduplicate and clean
     const terms = Array.from(new Set(baseTerms.map(normalizeTerm))).filter(Boolean);
     if (terms.length === 0) {
       logger.info('findUsersMatchingJob: no terms provided');
@@ -29,7 +34,7 @@ export async function findUsersMatchingJob({ serviceType, selectedServices }) {
 
     const result = await sql.query(
       `
-        SELECT id, clerk_id
+        SELECT id, clerk_id, metadata
         FROM users
         WHERE skills IS NOT NULL
           AND (${whereClause})
@@ -37,12 +42,42 @@ export async function findUsersMatchingJob({ serviceType, selectedServices }) {
       patterns
     );
 
-    const matched = result.map((row) => ({ id: row.id, clerkId: row.clerk_id }));
+    const normalizedJobLocation = normalizeLocationPayload(jobLocation || {});
+    const matched = result
+      .map((row) => {
+        const freelancerLocation = buildMetadataLocation(row.metadata);
+        const locationMatch = annotateLocationMatch({
+          viewerLocation: normalizedJobLocation,
+          targetLocation: freelancerLocation,
+          radiusKm,
+        });
 
-    logger.info(`findUsersMatchingJob: matched ${matched.length} users for terms=${JSON.stringify(terms)}`);
+        return {
+          id: row.id,
+          clerkId: row.clerk_id,
+          location: freelancerLocation,
+          locationMatch,
+        };
+      })
+      .filter((matchedUser) => {
+        if (!hasCoordinates(normalizedJobLocation)) {
+          return true;
+        }
+
+        return matchedUser.locationMatch.inYourArea;
+      })
+      .sort((left, right) => {
+        const leftDistance = left.locationMatch.distanceKm ?? Number.MAX_SAFE_INTEGER;
+        const rightDistance = right.locationMatch.distanceKm ?? Number.MAX_SAFE_INTEGER;
+        return leftDistance - rightDistance;
+      });
+
+    logger.info(
+      `findUsersMatchingJob: matched ${matched.length} users for terms=${JSON.stringify(terms)}`
+    );
     return matched;
-  } catch (e) {
-    logger.error('findUsersMatchingJob DB error', e);
+  } catch (error) {
+    logger.error('findUsersMatchingJob DB error', error);
     throw new Error('Failed to match users for job');
   }
 }

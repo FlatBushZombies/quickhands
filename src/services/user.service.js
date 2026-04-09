@@ -1,12 +1,11 @@
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
+import { normalizeLocationPayload } from "#utils/location.js";
 
-/**
- * Transform database user object to camelCase for API response
- * @param {Object} user - User object from database
- * @returns {Object} - Transformed user object
- */
 function transformUser(user) {
+  const metadata = user.metadata && typeof user.metadata === "object" ? user.metadata : {};
+  const location = normalizeLocationPayload(metadata.location || {});
+
   return {
     id: user.id,
     clerkId: user.clerk_id,
@@ -14,25 +13,13 @@ function transformUser(user) {
     skills: user.skills,
     experienceLevel: user.experience_level,
     hourlyRate: user.hourly_rate,
-    // Onboarding flag (defaults to false if column is missing/null)
     completedOnboarding: user.completed_onboarding === true,
+    location: location.label || location.city || location.latitude !== null ? location : null,
     createdAt: user.created_at,
-    updatedAt: user.updated_at
+    updatedAt: user.updated_at,
   };
 }
 
-/**
- * Upsert user onboarding information
- * Creates new user if clerk_id doesn't exist, otherwise updates existing user
- * @param {Object} userData - User data object
- * @param {string} userData.clerkId - Clerk user ID (required)
- * @param {string} userData.name - User's name
- * @param {string} userData.skills - User's skills
- * @param {string} userData.experienceLevel - User's experience level
- * @param {number} userData.hourlyRate - User's hourly rate
- * @returns {Object} - Updated or created user object
- * @throws {Error} - Database operation error
- */
 export async function upsertUser(userData) {
   const {
     clerkId,
@@ -44,7 +31,6 @@ export async function upsertUser(userData) {
   } = userData;
 
   try {
-    // Use PostgreSQL UPSERT (ON CONFLICT) to handle both insert and update
     const result = await sql`
       INSERT INTO users (
         clerk_id,
@@ -83,24 +69,18 @@ export async function upsertUser(userData) {
 
     const user = result[0];
     logger.info(`User upserted successfully: clerk_id=${clerkId}, id=${user.id}`);
-    
     return transformUser(user);
-
   } catch (error) {
     logger.error(`Database error during user upsert for clerk_id=${clerkId}:`, error);
     throw new Error("Failed to update user in database");
   }
 }
 
-/**
- * Get user by Clerk ID
- * @param {string} clerkId - Clerk user ID
- * @returns {Object|null} - User object or null if not found
- */
 export async function getUserByClerkId(clerkId) {
   try {
     const result = await sql`
-      SELECT * FROM users 
+      SELECT *
+      FROM users
       WHERE clerk_id = ${clerkId}
       LIMIT 1;
     `;
@@ -111,28 +91,69 @@ export async function getUserByClerkId(clerkId) {
 
     logger.info(`User found: clerk_id=${clerkId}`);
     return transformUser(result[0]);
-
   } catch (error) {
     logger.error(`Database error getting user by clerk_id=${clerkId}:`, error);
     throw new Error("Failed to retrieve user from database");
   }
 }
 
+export async function updateUserLocationByClerkId(clerkId, locationPayload) {
+  const normalizedLocation = normalizeLocationPayload(locationPayload);
+
+  if (
+    !normalizedLocation.label &&
+    !normalizedLocation.city &&
+    normalizedLocation.latitude === null &&
+    normalizedLocation.longitude === null
+  ) {
+    throw new Error("Location details are required");
+  }
+
+  try {
+    const result = await sql`
+      SELECT *
+      FROM users
+      WHERE clerk_id = ${clerkId}
+      LIMIT 1;
+    `;
+
+    if (result.length === 0) {
+      throw new Error("User not found");
+    }
+
+    const currentRow = result[0];
+    const nextMetadata = {
+      ...(currentRow.metadata && typeof currentRow.metadata === "object" ? currentRow.metadata : {}),
+      location: normalizedLocation,
+    };
+
+    const updated = await sql`
+      UPDATE users
+      SET metadata = ${nextMetadata}, updated_at = NOW()
+      WHERE clerk_id = ${clerkId}
+      RETURNING *;
+    `;
+
+    return transformUser(updated[0]);
+  } catch (error) {
+    logger.error(`updateUserLocationByClerkId error for ${clerkId}:`, error);
+    throw error;
+  }
+}
+
 function mapChatUserRow(row) {
+  const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+
   return {
     clerkId: row.clerk_id,
     displayName: row.full_name || row.email || "User",
     email: row.email,
     imageUrl: row.image_url || null,
     skills: row.skills || null,
+    location: normalizeLocationPayload(metadata.location || {}),
   };
 }
 
-/**
- * List registered users for chat (excludes current Clerk user).
- * @param {string} excludeClerkId
- * @param {{ limit?: number, q?: string }} opts
- */
 export async function listUsersForChat(excludeClerkId, opts = {}) {
   const limit = Math.min(100, Math.max(1, Number(opts.limit) || 50));
   const q = opts.q && String(opts.q).trim() ? String(opts.q).trim() : null;
@@ -141,7 +162,7 @@ export async function listUsersForChat(excludeClerkId, opts = {}) {
     if (q) {
       const pattern = `%${q}%`;
       const result = await sql`
-        SELECT id, clerk_id, email, full_name, image_url, skills
+        SELECT id, clerk_id, email, full_name, image_url, skills, metadata
         FROM users
         WHERE clerk_id != ${excludeClerkId}
         AND (full_name ILIKE ${pattern} OR email ILIKE ${pattern})
@@ -152,7 +173,7 @@ export async function listUsersForChat(excludeClerkId, opts = {}) {
     }
 
     const result = await sql`
-      SELECT id, clerk_id, email, full_name, image_url, skills
+      SELECT id, clerk_id, email, full_name, image_url, skills, metadata
       FROM users
       WHERE clerk_id != ${excludeClerkId}
       ORDER BY COALESCE(full_name, '') ASC, email ASC
@@ -165,13 +186,10 @@ export async function listUsersForChat(excludeClerkId, opts = {}) {
   }
 }
 
-/**
- * Minimal profile for messaging (uses DB column names from schema).
- */
 export async function getUserChatSummary(clerkId) {
   try {
     const result = await sql`
-      SELECT clerk_id, email, full_name, image_url
+      SELECT clerk_id, email, full_name, image_url, metadata
       FROM users
       WHERE clerk_id = ${clerkId}
       LIMIT 1
