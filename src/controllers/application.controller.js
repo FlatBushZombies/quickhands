@@ -140,6 +140,40 @@ async function notifyApplicationUpdate({
   }
 }
 
+function getFreelancerDisplayName(application) {
+  return application?.freelancerName || "the freelancer";
+}
+
+function buildFreelancerApplicationMessage({ status, job, contactSharedNow = false }) {
+  if (status === "accepted") {
+    return contactSharedNow
+      ? `Your application for "${job.serviceType}" has been accepted and the client shared a phone number for direct contact.`
+      : `Your application for "${job.serviceType}" has been accepted. The client can now share a phone number for direct contact.`;
+  }
+
+  return `Your application for "${job.serviceType}" has been rejected.`;
+}
+
+function buildClientApplicationMessage({ status, job, application, contactSharedNow = false }) {
+  const freelancerName = getFreelancerDisplayName(application);
+
+  if (status === "accepted") {
+    return contactSharedNow
+      ? `You accepted ${freelancerName} for "${job.serviceType}" and shared your contact details.`
+      : `You accepted ${freelancerName} for "${job.serviceType}". Share your contact details when you're ready to continue directly.`;
+  }
+
+  return `You rejected ${freelancerName} for "${job.serviceType}".`;
+}
+
+function buildFreelancerContactSharedMessage(job) {
+  return `${job.userName || "The client"} shared a phone number for "${job.serviceType}". You can now contact them directly.`;
+}
+
+function buildClientContactSharedMessage({ job, application }) {
+  return `You shared your contact details with ${getFreelancerDisplayName(application)} for "${job.serviceType}".`;
+}
+
 /**
  * Apply to a job
  * POST /api/jobs/:id/apply
@@ -413,23 +447,35 @@ export async function updateApplicationStatusController(req, res) {
       updatedApplication = await clearApplicationClientContact(applicationId);
     }
 
-    const statusMessage =
-      normalizedStatus === "accepted"
-        ? contactSharedNow
-          ? `Your application for "${job.serviceType}" has been accepted and the client shared a phone number for direct contact.`
-          : `Your application for "${job.serviceType}" has been accepted. The client can now share a phone number for direct contact.`
-        : `Your application for "${job.serviceType}" has been rejected`;
+    const notificationApplication = {
+      id: updatedApplication.id,
+      status: updatedApplication.status,
+      contactExchange: updatedApplication.contactExchange,
+    };
 
-    await notifyApplicationUpdate({
-      recipientClerkId: application.freelancerClerkId,
-      jobId: application.jobId,
-      message: statusMessage,
-      application: {
-        id: updatedApplication.id,
-        status: updatedApplication.status,
-        contactExchange: updatedApplication.contactExchange,
-      },
-    });
+    await Promise.all([
+      notifyApplicationUpdate({
+        recipientClerkId: application.freelancerClerkId,
+        jobId: application.jobId,
+        message: buildFreelancerApplicationMessage({
+          status: normalizedStatus,
+          job,
+          contactSharedNow,
+        }),
+        application: notificationApplication,
+      }),
+      notifyApplicationUpdate({
+        recipientClerkId: job.clerkId,
+        jobId: application.jobId,
+        message: buildClientApplicationMessage({
+          status: normalizedStatus,
+          job,
+          application,
+          contactSharedNow,
+        }),
+        application: notificationApplication,
+      }),
+    ]);
 
     return res.status(200).json({
       success: true,
@@ -511,16 +557,29 @@ export async function shareApplicationContactController(req, res) {
       sharedByClerkId: user?.clerkId || null,
     });
 
-    await notifyApplicationUpdate({
-      recipientClerkId: application.freelancerClerkId,
-      jobId: application.jobId,
-      message: `${job.userName || "The client"} shared a phone number for "${job.serviceType}". You can now contact them directly.`,
-      application: {
-        id: updatedApplication.id,
-        status: updatedApplication.status,
-        contactExchange: updatedApplication.contactExchange,
-      },
-    });
+    const notificationApplication = {
+      id: updatedApplication.id,
+      status: updatedApplication.status,
+      contactExchange: updatedApplication.contactExchange,
+    };
+
+    await Promise.all([
+      notifyApplicationUpdate({
+        recipientClerkId: application.freelancerClerkId,
+        jobId: application.jobId,
+        message: buildFreelancerContactSharedMessage(job),
+        application: notificationApplication,
+      }),
+      notifyApplicationUpdate({
+        recipientClerkId: job.clerkId,
+        jobId: application.jobId,
+        message: buildClientContactSharedMessage({
+          job,
+          application,
+        }),
+        application: notificationApplication,
+      }),
+    ]);
 
     emitToUser(application.freelancerClerkId, "application:contact-shared", {
       applicationId: updatedApplication.id,
