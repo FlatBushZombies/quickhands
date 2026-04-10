@@ -1,4 +1,5 @@
 import logger from "#config/logger.js";
+import { createNotification } from "#services/notifications.service.js";
 import {
   listUsersForChat,
   getUserChatSummary,
@@ -11,6 +12,7 @@ import {
   saveConversationMessage,
 } from "#services/messaging.service.js";
 import { emitToUser } from "#config/socket.js";
+import { buildCommunicationNotificationMessage } from "#utils/communicationCards.js";
 
 /**
  * GET /api/messaging/users?q=&limit=
@@ -164,6 +166,26 @@ export async function postConversationMessage(req, res) {
     const recipient = getOtherParticipant(result.conversation, req.user.clerkId);
     if (recipient) {
       emitToUser(recipient.clerkId, "message", result.message);
+
+      if (!result.duplicate && result.conversation.jobId) {
+        try {
+          const notification = await createNotification({
+            userId: recipient.clerkId,
+            jobId: result.conversation.jobId,
+            message: buildCommunicationNotificationMessage({
+              senderName: result.message.senderName,
+              conversation: result.conversation,
+              text: result.message.text,
+            }),
+          });
+
+          emitToUser(recipient.clerkId, "notification:new", {
+            notification,
+          });
+        } catch (notificationError) {
+          logger.error("postConversationMessage notification error:", notificationError);
+        }
+      }
     }
 
     return res.status(201).json({
