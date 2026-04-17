@@ -1,5 +1,6 @@
 import logger from '#config/logger.js';
 import { sql } from '#config/database.js';
+import { upsertUser } from '#services/user.service.js';
 
 async function resolveNotificationUserId(userId) {
   const numericUserId = Number(userId);
@@ -16,7 +17,17 @@ async function resolveNotificationUserId(userId) {
   `;
 
   if (result.length === 0) {
-    throw new Error('Notification recipient not found');
+    logger.warn(`Notification recipient ${userId} was missing locally. Creating a lightweight user record.`);
+    const createdUser = await upsertUser({
+      clerkId: String(userId),
+      name: null,
+      skills: null,
+      experienceLevel: null,
+      hourlyRate: null,
+      completedOnboarding: false,
+    });
+
+    return createdUser.id;
   }
 
   return result[0].id;

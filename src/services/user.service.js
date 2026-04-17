@@ -110,7 +110,7 @@ export async function updateUserLocationByClerkId(clerkId, locationPayload) {
   }
 
   try {
-    const result = await sql`
+    let result = await sql`
       SELECT *
       FROM users
       WHERE clerk_id = ${clerkId}
@@ -118,7 +118,21 @@ export async function updateUserLocationByClerkId(clerkId, locationPayload) {
     `;
 
     if (result.length === 0) {
-      throw new Error("User not found");
+      await upsertUser({
+        clerkId,
+        name: null,
+        skills: null,
+        experienceLevel: null,
+        hourlyRate: null,
+        completedOnboarding: false,
+      });
+
+      result = await sql`
+        SELECT *
+        FROM users
+        WHERE clerk_id = ${clerkId}
+        LIMIT 1;
+      `;
     }
 
     const currentRow = result[0];
