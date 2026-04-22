@@ -174,6 +174,10 @@ function buildClientContactSharedMessage({ job, application }) {
   return `You shared your contact details with ${getFreelancerDisplayName(application)} for "${job.serviceType}".`;
 }
 
+function buildFreelancerApplicationSubmittedMessage(job) {
+  return `Your application for "${job.serviceType}" was sent successfully. The client has been notified.`;
+}
+
 /**
  * Apply to a job
  * POST /api/jobs/:id/apply
@@ -252,19 +256,31 @@ export async function applyToJob(req, res) {
       logger.error("[Apply] Error creating job conversation:", conversationError);
     }
 
-    logger.info(`[Apply] Creating notification for client ${job.clerkId}...`);
-    await notifyApplicationUpdate({
-      recipientClerkId: job.clerkId,
-      jobId: Number(jobId),
-      message: `${userName || "A freelancer"} applied to your job: ${job.serviceType}`,
-      application: {
-        id: application.id,
-        freelancerName: application.freelancerName,
-        freelancerEmail: application.freelancerEmail,
-        createdAt: application.createdAt,
-        applicationSpotlight: application.applicationSpotlight,
-      },
-    });
+    logger.info(`[Apply] Creating notifications for client ${job.clerkId} and freelancer ${userId}...`);
+    await Promise.all([
+      notifyApplicationUpdate({
+        recipientClerkId: job.clerkId,
+        jobId: Number(jobId),
+        message: `${userName || "A freelancer"} applied to your job: ${job.serviceType}`,
+        application: {
+          id: application.id,
+          freelancerName: application.freelancerName,
+          freelancerEmail: application.freelancerEmail,
+          createdAt: application.createdAt,
+          applicationSpotlight: application.applicationSpotlight,
+        },
+      }),
+      notifyApplicationUpdate({
+        recipientClerkId: userId,
+        jobId: Number(jobId),
+        message: buildFreelancerApplicationSubmittedMessage(job),
+        application: {
+          id: application.id,
+          status: application.status,
+          createdAt: application.createdAt,
+        },
+      }),
+    ]);
 
     return res.status(201).json({
       success: true,

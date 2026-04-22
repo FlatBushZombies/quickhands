@@ -21,6 +21,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:applications": "node src/scripts/verify-application-contract.js",
+    "check:production-flows": "node src/scripts/verify-production-flows.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"

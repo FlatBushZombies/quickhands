@@ -22,27 +22,14 @@ export async function findUsersMatchingJob({ serviceType, selectedServices, jobL
     if (Array.isArray(selectedServices)) baseTerms.push(...selectedServices);
 
     const terms = Array.from(new Set(baseTerms.map(normalizeTerm))).filter(Boolean);
-    if (terms.length === 0) {
-      logger.info('findUsersMatchingJob: no terms provided');
-      return [];
-    }
-
-    const patterns = terms.map((term) => `%${escapeLikePattern(term)}%`);
-    const whereClause = patterns
-      .map((_, index) => `LOWER(skills) LIKE LOWER($${index + 1}) ESCAPE '\\'`)
-      .join(' OR ');
-
-    const result = await sql.query(
-      `
-        SELECT id, clerk_id, metadata
-        FROM users
-        WHERE skills IS NOT NULL
-          AND (${whereClause})
-      `,
-      patterns
-    );
+    const result = await sql`
+      SELECT id, clerk_id, skills, metadata
+      FROM users
+      WHERE clerk_id IS NOT NULL;
+    `;
 
     const normalizedJobLocation = normalizeLocationPayload(jobLocation || {});
+    const hasNearbyCoordinates = hasCoordinates(normalizedJobLocation);
     const matched = result
       .map((row) => {
         const freelancerLocation = buildMetadataLocation(row.metadata);
@@ -51,26 +38,39 @@ export async function findUsersMatchingJob({ serviceType, selectedServices, jobL
           targetLocation: freelancerLocation,
           radiusKm,
         });
+        const normalizedSkills = normalizeTerm(row.skills || "");
+        const skillMatch =
+          terms.length === 0
+            ? true
+            : terms.some((term) => normalizedSkills.includes(term));
 
         return {
           id: row.id,
           clerkId: row.clerk_id,
+          skillMatch,
           location: freelancerLocation,
           locationMatch,
         };
       })
       .filter((matchedUser) => {
-        if (!hasCoordinates(normalizedJobLocation)) {
-          return true;
+        if (hasNearbyCoordinates) {
+          return matchedUser.locationMatch.inYourArea;
         }
 
-        return matchedUser.locationMatch.inYourArea;
+        return matchedUser.skillMatch;
       })
       .sort((left, right) => {
+        const leftSkillRank = left.skillMatch ? 0 : 1;
+        const rightSkillRank = right.skillMatch ? 0 : 1;
+        if (leftSkillRank !== rightSkillRank) {
+          return leftSkillRank - rightSkillRank;
+        }
+
         const leftDistance = left.locationMatch.distanceKm ?? Number.MAX_SAFE_INTEGER;
         const rightDistance = right.locationMatch.distanceKm ?? Number.MAX_SAFE_INTEGER;
         return leftDistance - rightDistance;
-      });
+      })
+      .slice(0, 25);
 
     logger.info(
       `findUsersMatchingJob: matched ${matched.length} users for terms=${JSON.stringify(terms)}`
