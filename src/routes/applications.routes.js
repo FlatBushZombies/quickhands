@@ -1,12 +1,15 @@
 import express from "express";
 import {
   getMyApplications,
+  getApplicationReviewsController,
   updateApplicationStatusController,
   getAllApplicationsController,
   getClientApplicationsController,
   shareApplicationContactController,
   acceptApplicationController,
   rejectApplicationController,
+  submitApplicationReviewController,
+  updateClientApplicationMetaController,
 } from "#controllers/application.controller.js";
 import { requireAuth } from "#middleware/clerk.middleware.js";
 
@@ -33,5 +36,8 @@ router.patch("/:id/share-contact", requireAuth, shareApplicationContactControlle
 router.post("/:id/share-contact", requireAuth, shareApplicationContactController);
 router.patch("/:id/contact/share", requireAuth, shareApplicationContactController);
 router.post("/:id/contact/share", requireAuth, shareApplicationContactController);
+router.patch("/:id/client-meta", requireAuth, updateClientApplicationMetaController);
+router.get("/:id/reviews", requireAuth, getApplicationReviewsController);
+router.post("/:id/reviews", requireAuth, submitApplicationReviewController);
 
 export default router;

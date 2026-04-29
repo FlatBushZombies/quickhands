@@ -1,5 +1,4 @@
 import logger from "#config/logger.js";
-import { createNotification } from "#services/notifications.service.js";
 import {
   listUsersForChat,
   getUserChatSummary,
@@ -11,8 +10,10 @@ import {
   listMessagesForConversation,
   saveConversationMessage,
 } from "#services/messaging.service.js";
-import { emitToUser } from "#config/socket.js";
-import { buildCommunicationNotificationMessage } from "#utils/communicationCards.js";
+import {
+  buildCommunicationNotificationMessage,
+} from "#utils/communicationCards.js";
+import { notifyUser } from "#services/notifications.service.js";
 
 /**
  * GET /api/messaging/users?q=&limit=
@@ -149,38 +150,35 @@ export async function getConversationMessages(req, res) {
 
 /**
  * POST /api/messaging/conversations/:conversationId/messages
- * REST send fallback for when Socket.IO is unavailable.
+ * Persist a status card update for a conversation.
  */
 export async function postConversationMessage(req, res) {
   try {
     const { conversationId } = req.params;
-    const { text, clientMessageId } = req.body || {};
+    const { text, tag, note, label, clientMessageId } = req.body || {};
     const result = await saveConversationMessage({
       conversationId,
       senderClerkId: req.user.clerkId,
       senderName: req.user.userName,
       text,
+      tag,
+      note,
+      label,
       clientMessageId,
     });
 
     const recipient = getOtherParticipant(result.conversation, req.user.clerkId);
     if (recipient) {
-      emitToUser(recipient.clerkId, "message", result.message);
-
-      if (!result.duplicate && result.conversation.jobId) {
+      if (result.conversation.jobId) {
         try {
-          const notification = await createNotification({
-            userId: recipient.clerkId,
+          await notifyUser({
+            clerkId: recipient.clerkId,
             jobId: result.conversation.jobId,
             message: buildCommunicationNotificationMessage({
-              senderName: result.message.senderName,
+              senderName: req.user.userName,
               conversation: result.conversation,
               text: result.message.text,
             }),
-          });
-
-          emitToUser(recipient.clerkId, "notification:new", {
-            notification,
           });
         } catch (notificationError) {
           logger.error("postConversationMessage notification error:", notificationError);

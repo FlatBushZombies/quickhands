@@ -28,7 +28,7 @@ const communicationNotification = buildCommunicationNotificationMessage({
 });
 assert.equal(
   communicationNotification,
-  'Message update: Alex shared "Available now" for "Window cleaning".'
+  'Status update: Alex shared "Available now" for "Window cleaning".'
 );
 
 assert.equal(normalizeApplicationStatus("accept"), "accepted");

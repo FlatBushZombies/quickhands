@@ -1,37 +1,7 @@
-import logger from '#config/logger.js';
-import { sql } from '#config/database.js';
-import { upsertUser } from '#services/user.service.js';
-
-async function resolveNotificationUserId(userId) {
-  const numericUserId = Number(userId);
-
-  if (Number.isInteger(numericUserId)) {
-    return numericUserId;
-  }
-
-  const result = await sql`
-    SELECT id
-    FROM users
-    WHERE clerk_id = ${String(userId)}
-    LIMIT 1;
-  `;
-
-  if (result.length === 0) {
-    logger.warn(`Notification recipient ${userId} was missing locally. Creating a lightweight user record.`);
-    const createdUser = await upsertUser({
-      clerkId: String(userId),
-      name: null,
-      skills: null,
-      experienceLevel: null,
-      hourlyRate: null,
-      completedOnboarding: false,
-    });
-
-    return createdUser.id;
-  }
-
-  return result[0].id;
-}
+import logger from "#config/logger.js";
+import { emitToUser } from "#config/socket.js";
+import { sql } from "#config/database.js";
+import { upsertUser } from "#services/user.service.js";
 
 function transformNotification(row) {
   return {
@@ -44,86 +14,168 @@ function transformNotification(row) {
   };
 }
 
+async function resolveNotificationUserId(userId) {
+  const numericUserId = Number(userId);
+
+  if (Number.isInteger(numericUserId)) {
+    return numericUserId;
+  }
+
+  const result = await sql.query(
+    `
+      SELECT id
+      FROM users
+      WHERE clerk_id = $1
+      LIMIT 1;
+    `,
+    [String(userId)]
+  );
+
+  if (result.length === 0) {
+    logger.warn(
+      `Notification recipient ${userId} was missing locally. Creating a lightweight user record.`
+    );
+    await upsertUser({
+      clerkId: String(userId),
+      email: `${String(userId)}@quickhands.local`,
+    });
+
+    const createdResult = await sql.query(
+      `
+        SELECT id
+        FROM users
+        WHERE clerk_id = $1
+        LIMIT 1;
+      `,
+      [String(userId)]
+    );
+
+    return createdResult[0]?.id || null;
+  }
+
+  return result[0].id;
+}
+
 export async function createNotification({ userId, jobId, message }) {
   try {
     const resolvedUserId = await resolveNotificationUserId(userId);
-    const result = await sql`
-      INSERT INTO notifications (user_id, job_id, message, read, created_at)
-      VALUES (${resolvedUserId}, ${jobId}, ${message}, false, NOW())
-      RETURNING *;
-    `;
-    const notif = transformNotification(result[0]);
-    logger.info(`Notification created id=${notif.id} userId=${resolvedUserId} jobId=${jobId}`);
-    return notif;
-  } catch (e) {
-    logger.error('createNotification DB error', e);
-    throw new Error('Failed to create notification');
+    if (!resolvedUserId) {
+      throw new Error("Could not resolve notification recipient");
+    }
+    const result = await sql.query(
+      `
+        INSERT INTO notifications (user_id, job_id, message, read, created_at)
+        VALUES ($1, $2, $3, false, NOW())
+        RETURNING *;
+      `,
+      [resolvedUserId, jobId, message]
+    );
+
+    const notification = transformNotification(result[0]);
+    logger.info(
+      `Notification created id=${notification.id} userId=${resolvedUserId} jobId=${jobId}`
+    );
+    return notification;
+  } catch (error) {
+    logger.error("createNotification DB error", error);
+    throw new Error("Failed to create notification");
   }
+}
+
+export async function notifyUser({ clerkId, jobId, message }) {
+  const notification = await createNotification({
+    userId: clerkId,
+    jobId,
+    message,
+  });
+
+  emitToUser(clerkId, "notification:new", {
+    notification,
+  });
+
+  return notification;
 }
 
 export async function getNotificationsByUserId(userId) {
   try {
-    const result = await sql`
-      SELECT * FROM notifications
-      WHERE user_id = ${userId}
-      ORDER BY created_at DESC;
-    `;
+    const result = await sql.query(
+      `
+        SELECT *
+        FROM notifications
+        WHERE user_id = $1
+        ORDER BY created_at DESC;
+      `,
+      [userId]
+    );
+
     return result.map(transformNotification);
-  } catch (e) {
-    logger.error('getNotificationsByUserId DB error', e);
-    throw new Error('Failed to fetch notifications');
+  } catch (error) {
+    logger.error("getNotificationsByUserId DB error", error);
+    throw new Error("Failed to fetch notifications");
   }
 }
 
 export async function getNotificationsByClerkId(clerkId) {
   try {
-    const result = await sql`
-      SELECT n.*
-      FROM notifications n
-      JOIN users u ON u.id = n.user_id
-      WHERE u.clerk_id = ${clerkId}
-      ORDER BY n.created_at DESC;
-    `;
+    const result = await sql.query(
+      `
+        SELECT n.*
+        FROM notifications n
+        JOIN users u ON u.id = n.user_id
+        WHERE u.clerk_id = $1
+        ORDER BY n.created_at DESC;
+      `,
+      [clerkId]
+    );
+
     return result.map(transformNotification);
-  } catch (e) {
-    logger.error('getNotificationsByClerkId DB error', e);
-    throw new Error('Failed to fetch notifications by clerkId');
+  } catch (error) {
+    logger.error("getNotificationsByClerkId DB error", error);
+    throw new Error("Failed to fetch notifications by clerkId");
   }
 }
 
 export async function markNotificationRead(id) {
   try {
-    const result = await sql`
-      UPDATE notifications
-      SET read = true
-      WHERE id = ${id}
-      RETURNING *;
-    `;
-    if (result.length === 0) return null;
-    const notif = transformNotification(result[0]);
-    logger.info(`Notification marked read id=${id}`);
-    return notif;
-  } catch (e) {
-    logger.error('markNotificationRead DB error', e);
-    throw new Error('Failed to mark notification as read');
+    const result = await sql.query(
+      `
+        UPDATE notifications
+        SET read = true
+        WHERE id = $1
+        RETURNING *;
+      `,
+      [id]
+    );
+
+    if (result.length === 0) {
+      return null;
+    }
+
+    return transformNotification(result[0]);
+  } catch (error) {
+    logger.error("markNotificationRead DB error", error);
+    throw new Error("Failed to mark notification as read");
   }
 }
 
 export async function markAllNotificationsReadByClerkId(clerkId) {
   try {
-    const result = await sql`
-      UPDATE notifications n
-      SET read = true
-      WHERE n.read = false AND n.user_id IN (
-        SELECT id FROM users WHERE clerk_id = ${clerkId}
-      )
-      RETURNING n.id;
-    `;
-    const count = result.length;
-    logger.info(`Marked ${count} notifications read for clerkId=${clerkId}`);
-    return count;
-  } catch (e) {
-    logger.error('markAllNotificationsReadByClerkId DB error', e);
-    throw new Error('Failed to mark notifications as read by clerkId');
+    const result = await sql.query(
+      `
+        UPDATE notifications n
+        SET read = true
+        WHERE n.read = false
+          AND n.user_id IN (
+            SELECT id FROM users WHERE clerk_id = $1
+          )
+        RETURNING n.id;
+      `,
+      [clerkId]
+    );
+
+    return result.length;
+  } catch (error) {
+    logger.error("markAllNotificationsReadByClerkId DB error", error);
+    throw new Error("Failed to mark notifications as read by clerkId");
   }
 }

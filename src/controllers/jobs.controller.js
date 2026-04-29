@@ -1,8 +1,8 @@
 import logger from "#config/logger.js";
-import { emitToUser } from "#config/socket.js";
-import { createNotification } from "#services/notifications.service.js";
 import { findUsersMatchingJob } from "#services/match.service.js";
 import { getAllJobs, createJob, searchJobs, getJobById } from "#services/jobs.service.js";
+import { notifyUser } from "#services/notifications.service.js";
+import { getReviewSummariesByClerkIds } from "#services/user.service.js";
 import { annotateLocationMatch, buildInYourAreaPhrase, normalizeLocationPayload } from "#utils/location.js";
 
 function parseStringArray(value) {
@@ -24,6 +24,35 @@ function parseStringArray(value) {
 
 function normalizeViewerLocation(source) {
   return normalizeLocationPayload(source || {});
+}
+
+function parseNumberQuery(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseSelectedServices(value) {
+  if (Array.isArray(value)) {
+    return value.filter(Boolean).map(String);
+  }
+
+  if (typeof value !== "string" || value.trim() === "") {
+    return [];
+  }
+
+  if (value.trim().startsWith("[")) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function enhanceJobsForViewer(jobs, viewerLocation, nearbyOnly = false) {
@@ -72,37 +101,96 @@ function enhanceJobsForViewer(jobs, viewerLocation, nearbyOnly = false) {
   });
 }
 
-function buildNearbyFreelancerNotificationMessage({ serviceType, nearbyFreelancerCount, location }) {
-  if (nearbyFreelancerCount > 0) {
-    return `We found ${nearbyFreelancerCount} freelancer${nearbyFreelancerCount === 1 ? "" : "s"} in your area for "${serviceType}".`;
-  }
+async function enrichJobsWithClientProfiles(jobs) {
+  const clientClerkIds = jobs.map((job) => job.clerkId).filter(Boolean);
+  const reviewSummaries = await getReviewSummariesByClerkIds(clientClerkIds);
 
-  if (location?.label || location?.city) {
-    return `Your "${serviceType}" task is live. We'll keep looking for nearby freelancers around ${location.label || location.city}.`;
-  }
-
-  return `Your "${serviceType}" task is live. Matching freelancers have been notified.`;
+  return jobs.map((job) => ({
+    ...job,
+    clientReviewSummary:
+      reviewSummaries.get(job.clerkId) || {
+        averageRating: 0,
+        reviewCount: 0,
+        latestReview: null,
+      },
+  }));
 }
 
-function buildFreelancerJobNotificationMessage({ job, matchedUser }) {
-  const nearbyPhrase = buildInYourAreaPhrase(matchedUser.locationMatch);
-  const placeLabel = job.location?.label || job.location?.city;
+function applyAdvancedJobFilters(jobs, query = {}) {
+  const selectedServices = parseSelectedServices(
+    query.selectedServices || query.selectedService
+  );
+  const minBudget = parseNumberQuery(query.minBudget);
+  const maxBudget = parseNumberQuery(query.maxBudget ?? query.maxPrice);
+  const minimumClientRating = parseNumberQuery(query.minimumClientRating);
+  const specialistChoice = typeof query.specialistChoice === "string" ? query.specialistChoice.trim() : "";
+  const sortBy = typeof query.sortBy === "string" ? query.sortBy : "relevance";
 
-  return `New job posted: ${job.serviceType}${nearbyPhrase}${placeLabel ? ` near ${placeLabel}` : ""}.`;
-}
+  let filteredJobs = [...jobs];
 
-async function createAndEmitNotification({ recipientClerkId, notificationUserId, jobId, message }) {
-  const notification = await createNotification({
-    userId: notificationUserId || recipientClerkId,
-    jobId,
-    message,
-  });
+  if (selectedServices.length > 0) {
+    filteredJobs = filteredJobs.filter((job) =>
+      selectedServices.some((selectedService) =>
+        (job.selectedServices || [])
+          .map((service) => String(service).toLowerCase())
+          .includes(String(selectedService).toLowerCase())
+      )
+    );
+  }
 
-  emitToUser(recipientClerkId, "notification:new", {
-    notification,
-  });
+  if (minBudget !== null) {
+    filteredJobs = filteredJobs.filter((job) => Number(job.maxPrice) >= minBudget);
+  }
 
-  return notification;
+  if (maxBudget !== null) {
+    filteredJobs = filteredJobs.filter((job) => Number(job.maxPrice) <= maxBudget);
+  }
+
+  if (specialistChoice) {
+    filteredJobs = filteredJobs.filter(
+      (job) =>
+        String(job.specialistChoice || "").toLowerCase() === specialistChoice.toLowerCase()
+    );
+  }
+
+  if (minimumClientRating !== null) {
+    filteredJobs = filteredJobs.filter(
+      (job) => Number(job.clientReviewSummary?.averageRating || 0) >= minimumClientRating
+    );
+  }
+
+  switch (sortBy) {
+    case "budget_low":
+      filteredJobs.sort((left, right) => Number(left.maxPrice) - Number(right.maxPrice));
+      break;
+    case "budget_high":
+      filteredJobs.sort((left, right) => Number(right.maxPrice) - Number(left.maxPrice));
+      break;
+    case "client_rating":
+      filteredJobs.sort(
+        (left, right) =>
+          Number(right.clientReviewSummary?.averageRating || 0) -
+          Number(left.clientReviewSummary?.averageRating || 0)
+      );
+      break;
+    case "newest":
+      filteredJobs.sort(
+        (left, right) =>
+          new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+      );
+      break;
+    case "distance":
+      filteredJobs.sort(
+        (left, right) =>
+          Number(left.proximity?.distanceKm ?? Number.MAX_SAFE_INTEGER) -
+          Number(right.proximity?.distanceKm ?? Number.MAX_SAFE_INTEGER)
+      );
+      break;
+    default:
+      break;
+  }
+
+  return filteredJobs;
 }
 
 export async function getJob(req, res) {
@@ -125,7 +213,10 @@ export async function getJob(req, res) {
       });
     }
 
-    const [enhancedJob] = enhanceJobsForViewer([job], req.query);
+    const [enhancedJob] = applyAdvancedJobFilters(
+      await enrichJobsWithClientProfiles(enhanceJobsForViewer([job], req.query)),
+      req.query
+    );
 
     logger.info(`Successfully retrieved job request with ID: ${id}`);
     return res.status(200).json({
@@ -147,7 +238,12 @@ export async function getJobs(req, res) {
   try {
     const { clerkId, nearbyOnly } = req.query;
     const jobs = await getAllJobs(clerkId);
-    const enhancedJobs = enhanceJobsForViewer(jobs, req.query, nearbyOnly === "true");
+    const enhancedJobs = applyAdvancedJobFilters(
+      await enrichJobsWithClientProfiles(
+        enhanceJobsForViewer(jobs, req.query, nearbyOnly === "true")
+      ),
+      req.query
+    );
 
     logger.info(`Successfully retrieved ${clerkId ? "user" : "all"} job requests`);
     return res.status(200).json({
@@ -234,39 +330,19 @@ export async function createJobController(req, res) {
       });
       nearbyFreelancerCount = matchedUsers.length;
 
-      const notificationResults = await Promise.allSettled(
+      await Promise.all(
         matchedUsers.map((matchedUser) =>
-          createAndEmitNotification({
-            recipientClerkId: matchedUser.clerkId,
-            notificationUserId: matchedUser.id,
+          notifyUser({
+            clerkId: matchedUser.clerkId,
             jobId: newJob.id,
-            message: buildFreelancerJobNotificationMessage({
-              job: newJob,
-              matchedUser,
-            }),
+            message: `New "${newJob.serviceType}" job${buildInYourAreaPhrase(matchedUser.locationMatch)}.`,
+          }).catch((notificationError) => {
+            logger.error("Error notifying matched freelancer", notificationError);
           })
         )
       );
-
-      const deliveredCount = notificationResults.filter(
-        (result) => result.status === "fulfilled"
-      ).length;
-
-      await createAndEmitNotification({
-        recipientClerkId: clerkId,
-        jobId: newJob.id,
-        message: buildNearbyFreelancerNotificationMessage({
-          serviceType,
-          nearbyFreelancerCount,
-          location: newJob.location || normalizedLocation,
-        }),
-      });
-
-      logger.info(
-        `Notifications sent for jobId=${newJob.id} to ${deliveredCount}/${matchedUsers.length} nearby matched users`
-      );
     } catch (notifyErr) {
-      logger.error("Error triggering notifications for new job", notifyErr);
+      logger.error("Error calculating nearby freelancer matches for new job", notifyErr);
     }
 
     return res.status(201).json({
@@ -309,10 +385,11 @@ export async function searchJobsController(req, res) {
     Object.keys(filters).forEach((key) => filters[key] === undefined && delete filters[key]);
 
     const result = await searchJobs(filters);
-    const enhancedJobs = enhanceJobsForViewer(
-      result.jobs,
-      req.query,
-      req.query.nearbyOnly === "true"
+    const enhancedJobs = applyAdvancedJobFilters(
+      await enrichJobsWithClientProfiles(
+        enhanceJobsForViewer(result.jobs, req.query, req.query.nearbyOnly === "true")
+      ),
+      req.query
     );
 
     logger.info(

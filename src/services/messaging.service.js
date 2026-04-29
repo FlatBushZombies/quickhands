@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
 import {
+  buildCommunicationCardText,
+  parseCommunicationCardText,
+} from "#utils/communicationCards.js";
+import {
   conversationIdForClerkPair,
   conversationIdForJobClerkPair,
 } from "#utils/conversationId.js";
@@ -380,15 +384,26 @@ export async function saveConversationMessage({
   senderClerkId,
   senderName = null,
   text,
+  tag = null,
+  note = null,
+  label = null,
   clientMessageId = null,
 }) {
   const trimmedText = typeof text === "string" ? text.trim() : "";
+  const normalizedText =
+    tag || label
+      ? buildCommunicationCardText({ kind: tag, note, label })
+      : trimmedText;
 
-  if (!trimmedText) {
-    throw new Error("Message text is required");
+  if (!normalizedText) {
+    throw new Error("Only lightweight communication tags are allowed");
   }
 
-  if (trimmedText.length > MAX_MESSAGE_LENGTH) {
+  if (!parseCommunicationCardText(normalizedText)) {
+    throw new Error("Only lightweight communication tags are allowed");
+  }
+
+  if (normalizedText.length > MAX_MESSAGE_LENGTH) {
     throw new Error(`Message text must be at most ${MAX_MESSAGE_LENGTH} characters`);
   }
 
@@ -423,7 +438,7 @@ export async function saveConversationMessage({
         ${conversationId},
         ${senderClerkId},
         ${resolvedSenderName},
-        ${trimmedText},
+        ${normalizedText},
         ${clientMessageId || null},
         NOW()
       )

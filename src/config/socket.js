@@ -147,6 +147,9 @@ export function initSocket(httpServer) {
       }
       const conversationId = payload?.conversationId;
       const text = payload?.text;
+      const tag = payload?.tag;
+      const note = payload?.note;
+      const label = payload?.label;
       if (!isUuid(conversationId)) {
         const err = {
           code: "INVALID_CONVERSATION",
@@ -155,15 +158,15 @@ export function initSocket(httpServer) {
         if (typeof ack === "function") ack(err);
         return;
       }
-      if (typeof text !== "string" || text.trim().length === 0) {
+      if ((!tag || typeof tag !== "string") && (typeof text !== "string" || text.trim().length === 0)) {
         const err = {
           code: "INVALID_MESSAGE",
-          message: "text must be a non-empty string",
+          message: "A communication tag is required",
         };
         if (typeof ack === "function") ack(err);
         return;
       }
-      if (text.length > MAX_MESSAGE_LENGTH) {
+      if (typeof text === "string" && text.length > MAX_MESSAGE_LENGTH) {
         const err = {
           code: "MESSAGE_TOO_LONG",
           message: `text must be at most ${MAX_MESSAGE_LENGTH} characters`,
@@ -179,6 +182,9 @@ export function initSocket(httpServer) {
           senderClerkId: uid,
           senderName: socket.data.userName || null,
           text,
+          tag,
+          note,
+          label,
           clientMessageId:
             typeof clientMessageId === "string" && isUuid(clientMessageId)
               ? clientMessageId

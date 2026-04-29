@@ -1,9 +1,15 @@
 import logger from '#config/logger.js';
 import { upsertUser, getUserByClerkId, updateUserLocationByClerkId } from '#services/user.service.js';
+import {
+  deleteJobTemplate,
+  listJobTemplates,
+  saveJobTemplate,
+} from '#services/templates.service.js';
+import { listReceivedReviews } from '#services/reviews.service.js';
 import { normalizeLocationPayload } from '#utils/location.js';
 
 export const createOrRegisterUser = async (req, res) => {
-  const { clerkId, name } = req.body || {};
+  const { clerkId, name, email, imageUrl } = req.body || {};
 
   try {
     if (!clerkId || typeof clerkId !== 'string' || clerkId.trim().length === 0) {
@@ -16,6 +22,8 @@ export const createOrRegisterUser = async (req, res) => {
     const user = await upsertUser({
       clerkId,
       name,
+      email,
+      imageUrl,
       skills: null,
       experienceLevel: null,
       hourlyRate: null,
@@ -68,7 +76,7 @@ export const getUserProfileByQuery = async (req, res) => {
 };
 
 export const updateUserOnboarding = async (req, res) => {
-  const { clerkId, name, skills, experienceLevel, hourlyRate, completedOnboarding } = req.body || {};
+  const { clerkId, name, email, imageUrl, skills, experienceLevel, hourlyRate, completedOnboarding } = req.body || {};
 
   try {
     if (!clerkId || typeof clerkId !== 'string' || clerkId.trim().length === 0) {
@@ -81,6 +89,8 @@ export const updateUserOnboarding = async (req, res) => {
     const user = await upsertUser({
       clerkId,
       name,
+      email,
+      imageUrl,
       skills,
       experienceLevel,
       hourlyRate,
@@ -120,5 +130,80 @@ export const updateUserLocation = async (req, res) => {
     return res.status(
       error.message === 'User not found' || error.message === 'Location details are required' ? 404 : 500
     ).json({ error: error.message || 'Failed to update user location' });
+  }
+};
+
+export const getMyJobTemplates = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const templates = await listJobTemplates(req.user.clerkId);
+    return res.status(200).json({
+      success: true,
+      templates,
+    });
+  } catch (error) {
+    logger.error(`Failed to fetch templates for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch templates' });
+  }
+};
+
+export const saveMyJobTemplate = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const template = await saveJobTemplate(req.user.clerkId, req.body || {});
+    return res.status(200).json({
+      success: true,
+      template,
+    });
+  } catch (error) {
+    logger.error(`Failed to save template for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(400).json({ success: false, message: error.message || 'Failed to save template' });
+  }
+};
+
+export const deleteMyJobTemplate = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const deleted = await deleteJobTemplate(req.user.clerkId, req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Template not found' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      deleted: true,
+    });
+  } catch (error) {
+    logger.error(`Failed to delete template for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(500).json({ success: false, message: 'Failed to delete template' });
+  }
+};
+
+export const getUserReviews = async (req, res) => {
+  const { clerkId } = req.params || {};
+
+  try {
+    if (!clerkId || typeof clerkId !== 'string' || clerkId.trim().length === 0) {
+      return res.status(400).json({ success: false, message: 'Clerk ID is required' });
+    }
+
+    const { reviews, summary } = await listReceivedReviews(clerkId);
+    return res.status(200).json({
+      success: true,
+      summary,
+      reviews,
+    });
+  } catch (error) {
+    logger.error(`Failed to fetch reviews for clerk_id=${clerkId}:`, error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch reviews' });
   }
 };

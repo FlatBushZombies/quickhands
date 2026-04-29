@@ -1,7 +1,30 @@
 export const COMMUNICATION_CARD_PREFIX = "QH_CARD::";
+export const COMMUNICATION_TAGS = {
+  freelancer: [
+    { kind: "available-now", label: "Available now" },
+    { kind: "need-address", label: "Need address" },
+    { kind: "need-photos", label: "Need photos" },
+    { kind: "running-late", label: "Running late" },
+    { kind: "job-complete", label: "Job complete" },
+  ],
+  client: [
+    { kind: "ready-for-visit", label: "Ready for visit" },
+    { kind: "please-call", label: "Please call" },
+    { kind: "share-location", label: "Location shared" },
+    { kind: "need-quote-update", label: "Need quote update" },
+    { kind: "confirm-arrival", label: "Confirm arrival" },
+  ],
+};
 
 function trimOptionalString(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function findTagByKind(kind) {
+  const normalizedKind = trimOptionalString(kind);
+  return [...COMMUNICATION_TAGS.freelancer, ...COMMUNICATION_TAGS.client].find(
+    (entry) => entry.kind === normalizedKind
+  );
 }
 
 export function parseCommunicationCardText(text) {
@@ -33,6 +56,21 @@ export function parseCommunicationCardText(text) {
   }
 }
 
+export function buildCommunicationCardText({ kind, note = null, label = null }) {
+  const tag = findTagByKind(kind);
+  const resolvedLabel = trimOptionalString(label) || tag?.label || null;
+
+  if (!resolvedLabel) {
+    throw new Error("A valid communication tag is required");
+  }
+
+  return `${COMMUNICATION_CARD_PREFIX}${JSON.stringify({
+    kind: trimOptionalString(kind) || "update",
+    label: resolvedLabel,
+    note: trimOptionalString(note) || null,
+  })}`;
+}
+
 export function buildCommunicationNotificationMessage({
   senderName,
   conversation,
@@ -43,8 +81,8 @@ export function buildCommunicationNotificationMessage({
   const jobTitle = trimOptionalString(conversation?.jobTitle);
 
   if (parsedCard) {
-    return `Message update: ${displayName} shared "${parsedCard.label}"${jobTitle ? ` for "${jobTitle}"` : ""}.`;
+    return `Status update: ${displayName} shared "${parsedCard.label}"${jobTitle ? ` for "${jobTitle}"` : ""}.`;
   }
 
-  return `Message update: ${displayName} sent you a new note${jobTitle ? ` about "${jobTitle}"` : ""}.`;
+  return `Status update: ${displayName} sent you a new note${jobTitle ? ` about "${jobTitle}"` : ""}.`;
 }

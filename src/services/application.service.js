@@ -1,5 +1,7 @@
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
+import { getClientApplicationPreferences } from "#services/applicationPreferences.service.js";
+import { getReviewSummariesByClerkIds } from "#services/user.service.js";
 import { conversationIdForJobClerkPair } from "#utils/conversationId.js";
 import {
   isMissingApplicationContactColumnError,
@@ -11,7 +13,15 @@ function trimOptionalString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function buildApplicationContext(app, viewerRole) {
+function emptyReviewSummary() {
+  return {
+    averageRating: 0,
+    reviewCount: 0,
+    latestReview: null,
+  };
+}
+
+function buildApplicationContext(app, viewerRole, extras = {}) {
   const transformedApplication = transformApplication(app, { viewerRole });
   const hasConversationParticipants =
     app.job_client_clerk_id && app.freelancer_clerk_id && app.job_id;
@@ -46,7 +56,24 @@ function buildApplicationContext(app, viewerRole) {
           },
         }
       : {}),
+    ...(extras.clientDecision
+      ? {
+          clientDecision: extras.clientDecision,
+        }
+      : {}),
+    freelancerReviewSummary:
+      extras.freelancerReviewSummary || emptyReviewSummary(),
+    clientReviewSummary: extras.clientReviewSummary || emptyReviewSummary(),
   };
+}
+
+async function buildReviewSummaryMap(rows) {
+  const clerkIds = rows.flatMap((row) => [
+    row.freelancer_clerk_id,
+    row.job_client_clerk_id,
+  ]);
+
+  return getReviewSummariesByClerkIds(clerkIds);
 }
 
 /**
@@ -188,7 +215,16 @@ export async function getApplicationsByFreelancerId(clerkId) {
     `;
 
     logger.info(`Retrieved ${result.length} applications for freelancer ${clerkId}`);
-    return result.map((app) => buildApplicationContext(app, "freelancer"));
+    const reviewSummaries = await buildReviewSummaryMap(result);
+
+    return result.map((app) =>
+      buildApplicationContext(app, "freelancer", {
+        freelancerReviewSummary:
+          reviewSummaries.get(app.freelancer_clerk_id) || emptyReviewSummary(),
+        clientReviewSummary:
+          reviewSummaries.get(app.job_client_clerk_id) || emptyReviewSummary(),
+      })
+    );
   } catch (error) {
     logger.error(`Error fetching applications for freelancer ${clerkId}:`, error);
     throw error;
@@ -250,7 +286,30 @@ export async function getApplicationById(applicationId, options = {}) {
       return null;
     }
 
-    return buildApplicationContext(result[0], options.viewerRole || "admin");
+    const application = result[0];
+    const reviewSummaries = await getReviewSummariesByClerkIds([
+      application.freelancer_clerk_id,
+      application.job_client_clerk_id,
+    ]);
+    const clientPreferences =
+      options.viewerClerkId && options.viewerRole === "client"
+        ? await getClientApplicationPreferences(options.viewerClerkId)
+        : {};
+
+    return buildApplicationContext(application, options.viewerRole || "admin", {
+      clientDecision:
+        options.viewerClerkId && options.viewerRole === "client"
+          ? clientPreferences[String(application.id)] || {
+              shortlisted: false,
+              privateNote: "",
+              updatedAt: null,
+            }
+          : undefined,
+      freelancerReviewSummary:
+        reviewSummaries.get(application.freelancer_clerk_id) || emptyReviewSummary(),
+      clientReviewSummary:
+        reviewSummaries.get(application.job_client_clerk_id) || emptyReviewSummary(),
+    });
   } catch (error) {
     logger.error(`Error fetching application ${applicationId}:`, error);
     throw error;
@@ -389,6 +448,10 @@ export async function getApplicationsForClient(clerkId) {
     `;
 
     logger.info(`Retrieved ${result.length} applications for client ${clerkId}`);
+    const [reviewSummaries, clientPreferences] = await Promise.all([
+      buildReviewSummaryMap(result),
+      getClientApplicationPreferences(clerkId),
+    ]);
 
     const jobsMap = new Map();
     result.forEach((app) => {
@@ -412,7 +475,19 @@ export async function getApplicationsForClient(clerkId) {
       }
 
       const jobEntry = jobsMap.get(jobId);
-      jobEntry.applications.push(buildApplicationContext(app, "client"));
+      jobEntry.applications.push(
+        buildApplicationContext(app, "client", {
+          clientDecision: clientPreferences[String(app.id)] || {
+            shortlisted: false,
+            privateNote: "",
+            updatedAt: null,
+          },
+          freelancerReviewSummary:
+            reviewSummaries.get(app.freelancer_clerk_id) || emptyReviewSummary(),
+          clientReviewSummary:
+            reviewSummaries.get(app.job_client_clerk_id) || emptyReviewSummary(),
+        })
+      );
 
       jobEntry.applicationSummary.total += 1;
       if (jobEntry.applicationSummary[app.status] !== undefined) {
