@@ -70,6 +70,37 @@ function mapMessage(row) {
   };
 }
 
+async function getExistingConversationByIdForUser(conversationId, clerkId) {
+  const result = await sql`
+    SELECT
+      id,
+      conversation_type,
+      job_id,
+      job_title,
+      participant_one_clerk_id,
+      participant_one_name,
+      participant_two_clerk_id,
+      participant_two_name,
+      last_message_text,
+      last_message_at,
+      created_at,
+      updated_at
+    FROM messaging_conversations
+    WHERE id = ${conversationId}
+      AND (
+        participant_one_clerk_id = ${clerkId}
+        OR participant_two_clerk_id = ${clerkId}
+      )
+    LIMIT 1;
+  `;
+
+  if (result.length === 0) {
+    return null;
+  }
+
+  return mapConversation(result[0], clerkId);
+}
+
 function resolveConversationId({
   conversationType,
   jobId = null,
@@ -247,31 +278,63 @@ export async function ensureJobConversation({
 
 export async function getConversationByIdForUser(conversationId, clerkId) {
   try {
-    const result = await sql`
+    const existingConversation = await getExistingConversationByIdForUser(
+      conversationId,
+      clerkId
+    );
+
+    if (existingConversation) {
+      return existingConversation;
+    }
+
+    const relatedApplications = await sql`
       SELECT
-        id,
-        conversation_type,
-        job_id,
-        job_title,
-        participant_one_clerk_id,
-        participant_one_name,
-        participant_two_clerk_id,
-        participant_two_name,
-        last_message_text,
-        last_message_at,
-        created_at,
-        updated_at
-      FROM messaging_conversations
-      WHERE id = ${conversationId}
-        AND (
-          participant_one_clerk_id = ${clerkId}
-          OR participant_two_clerk_id = ${clerkId}
-        )
-      LIMIT 1;
+        a.job_id,
+        a.freelancer_clerk_id,
+        a.freelancer_name,
+        sr.clerk_id as job_client_clerk_id,
+        sr.user_name as job_client_name,
+        sr.service_type as job_title
+      FROM job_applications a
+      JOIN service_request sr ON sr.id = a.job_id
+      WHERE a.freelancer_clerk_id = ${clerkId}
+         OR sr.clerk_id = ${clerkId}
+      ORDER BY a.created_at DESC
+      LIMIT 200;
     `;
 
-    if (result.length === 0) return null;
-    return mapConversation(result[0], clerkId);
+    const matchingApplication = relatedApplications.find((application) => {
+      const derivedConversationId = conversationIdForJobClerkPair(
+        application.job_id,
+        application.freelancer_clerk_id,
+        application.job_client_clerk_id
+      );
+
+      return derivedConversationId === conversationId;
+    });
+
+    if (!matchingApplication) {
+      return null;
+    }
+
+    const isFreelancer = matchingApplication.freelancer_clerk_id === clerkId;
+    const hydratedConversation = await upsertConversation({
+      conversationType: "job_application",
+      jobId: Number(matchingApplication.job_id),
+      jobTitle: matchingApplication.job_title || null,
+      currentClerkId: clerkId,
+      currentUserName: isFreelancer
+        ? matchingApplication.freelancer_name || clerkId
+        : matchingApplication.job_client_name || clerkId,
+      otherClerkId: isFreelancer
+        ? matchingApplication.job_client_clerk_id
+        : matchingApplication.freelancer_clerk_id,
+      otherUserName: isFreelancer
+        ? matchingApplication.job_client_name || "Client"
+        : matchingApplication.freelancer_name || "Freelancer",
+    });
+
+    return hydratedConversation;
   } catch (error) {
     logger.error(`getConversationByIdForUser error for ${conversationId}:`, error);
     throw new Error("Failed to load conversation");
