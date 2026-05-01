@@ -27,7 +27,8 @@
     "check:production-flows": "node src/scripts/verify-production-flows.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "start": "node src/index.js"
   },
   "repository": {
     "type": "git",
