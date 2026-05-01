@@ -29,10 +29,6 @@ function toNullableNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function toNullableBoolean(value) {
-  return typeof value === "boolean" ? value : null;
-}
-
 function fallbackEmailForClerkId(clerkId) {
   return `${clerkId}@quickhands.local`;
 }

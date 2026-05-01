@@ -6,10 +6,6 @@ function normalizeTerm(term) {
   return String(term || '').trim().toLowerCase();
 }
 
-function escapeLikePattern(value) {
-  return String(value).replace(/[\\%_]/g, '\\$&');
-}
-
 function buildMetadataLocation(metadata) {
   const safeMetadata = metadata && typeof metadata === "object" ? metadata : {};
   return normalizeLocationPayload(safeMetadata.location || {});

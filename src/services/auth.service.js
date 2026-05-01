@@ -63,7 +63,8 @@ export const authenticateUser = async ({ email, password }) => {
         logger.info(`User ${email} authenticated successfully`);
         
         // Return user without password
-        const { password: _, ...userWithoutPassword } = user;
+        const userWithoutPassword = { ...user };
+        delete userWithoutPassword.password;
         return userWithoutPassword;
         
     } catch (e) {
