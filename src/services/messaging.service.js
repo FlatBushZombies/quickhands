@@ -580,7 +580,9 @@ export async function saveConversationMessage({
     };
   } catch (error) {
     logger.error(`saveConversationMessage error for ${conversationId}:`, error);
-    throw new Error("Failed to save message");
+    throw error instanceof Error
+      ? error
+      : new Error("Failed to save message");
   }
 }
 
