@@ -14,5 +14,5 @@ server.requestTimeout = Number(process.env.REQUEST_TIMEOUT_MS) || 120000;
 initSocket(server);
 
 server.listen(PORT, () => {
-    logger.info(`Listening on http://localhost:${PORT}`);
+    logger.info(`Listening on Port:${PORT}`);
 });
