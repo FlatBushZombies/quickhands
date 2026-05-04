@@ -486,42 +486,10 @@ export async function saveConversationMessage({
       senderName
     );
 
-    const inserted = await sql`
-      INSERT INTO messaging_messages (
-        id,
-        conversation_id,
-        sender_clerk_id,
-        sender_name,
-        text,
-        client_message_id,
-        created_at
-      )
-      VALUES (
-        ${randomUUID()},
-        ${conversationId},
-        ${senderClerkId},
-        ${resolvedSenderName},
-        ${normalizedText},
-        ${clientMessageId || null},
-        NOW()
-      )
-      ON CONFLICT (conversation_id, client_message_id)
-      DO NOTHING
-      RETURNING
-        id,
-        conversation_id,
-        sender_clerk_id,
-        sender_name,
-        text,
-        client_message_id,
-        created_at;
-    `;
-
     let duplicate = false;
-    let messageRow = inserted[0] || null;
+    let messageRow = null;
 
-    if (!messageRow && clientMessageId) {
-      duplicate = true;
+    if (clientMessageId) {
       const existing = await sql`
         SELECT
           id,
@@ -537,11 +505,43 @@ export async function saveConversationMessage({
         LIMIT 1;
       `;
 
-      if (existing.length === 0) {
-        throw new Error("Failed to save message");
+      if (existing.length > 0) {
+        duplicate = true;
+        messageRow = existing[0];
       }
+    }
 
-      messageRow = existing[0];
+    if (!messageRow) {
+      const inserted = await sql`
+        INSERT INTO messaging_messages (
+          id,
+          conversation_id,
+          sender_clerk_id,
+          sender_name,
+          text,
+          client_message_id,
+          created_at
+        )
+        VALUES (
+          ${randomUUID()},
+          ${conversationId},
+          ${senderClerkId},
+          ${resolvedSenderName},
+          ${normalizedText},
+          ${clientMessageId || null},
+          NOW()
+        )
+        RETURNING
+          id,
+          conversation_id,
+          sender_clerk_id,
+          sender_name,
+          text,
+          client_message_id,
+          created_at;
+      `;
+
+      messageRow = inserted[0] || null;
     }
 
     if (!messageRow) {
