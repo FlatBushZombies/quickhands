@@ -2,13 +2,6 @@ import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
 import { normalizeLocationPayload } from "#utils/location.js";
 
-const LOCATION_COLUMNS = [
-  "location_label",
-  "location_city",
-  "location_latitude",
-  "location_longitude",
-];
-
 let serviceRequestColumnStatePromise = null;
 
 function parseJsonArray(value) {
@@ -35,15 +28,12 @@ function toNullableNumber(value) {
 
 async function getServiceRequestColumnState() {
   if (!serviceRequestColumnStatePromise) {
-    serviceRequestColumnStatePromise = sql.query(
-      `
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_name = 'service_request'
-          AND column_name = ANY($1);
-      `,
-      [LOCATION_COLUMNS]
-    ).then((rows) => {
+    serviceRequestColumnStatePromise = sql`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'service_request'
+        AND column_name IN ('location_label', 'location_city', 'location_latitude', 'location_longitude')
+    `.then((rows) => {
       const availableColumns = new Set(rows.map((row) => row.column_name));
       return {
         locationLabel: availableColumns.has("location_label"),
@@ -51,6 +41,9 @@ async function getServiceRequestColumnState() {
         locationLatitude: availableColumns.has("location_latitude"),
         locationLongitude: availableColumns.has("location_longitude"),
       };
+    }).catch((error) => {
+      serviceRequestColumnStatePromise = null;
+      throw error;
     });
   }
 
@@ -135,27 +128,16 @@ async function queryJobs({ whereClauses = [], params = [], orderBy = "created_at
     paginationClause += ` OFFSET $${queryParams.length}`;
   }
 
-  return sql.query(
-    `
-      SELECT
-        ${selectColumns}
-      FROM service_request
-      ${whereClause}
-      ORDER BY ${orderBy}
-      ${paginationClause};
-    `,
+  return sql(
+    `SELECT ${selectColumns} FROM service_request ${whereClause} ORDER BY ${orderBy} ${paginationClause};`,
     queryParams
   );
 }
 
 async function countJobs({ whereClauses = [], params = [] }) {
   const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
-  const result = await sql.query(
-    `
-      SELECT COUNT(*) AS total
-      FROM service_request
-      ${whereClause};
-    `,
+  const result = await sql(
+    `SELECT COUNT(*) AS total FROM service_request ${whereClause};`,
     params
   );
 
@@ -267,15 +249,8 @@ export async function createJob(jobData) {
     const placeholders = values.map((_, index) => `$${index + 1}`).join(", ");
     const returningColumns = buildJobSelectColumns(columnState);
 
-    const result = await sql.query(
-      `
-        INSERT INTO service_request (
-          ${columns.join(", ")}
-        )
-        VALUES (${placeholders})
-        RETURNING
-          ${returningColumns};
-      `,
+    const result = await sql(
+      `INSERT INTO service_request (${columns.join(", ")}) VALUES (${placeholders}) RETURNING ${returningColumns};`,
       values
     );
 
