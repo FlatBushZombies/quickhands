@@ -237,7 +237,9 @@ export async function getJob(req, res) {
 export async function getJobs(req, res) {
   try {
     const { clerkId, nearbyOnly } = req.query;
-    const jobs = await getAllJobs(clerkId);
+    const limit = req.query.limit ? Math.min(100, Math.max(1, parseInt(req.query.limit, 10))) : 50;
+    const offset = req.query.offset ? Math.max(0, parseInt(req.query.offset, 10)) : 0;
+    const jobs = await getAllJobs(clerkId, { limit, offset });
     const enhancedJobs = applyAdvancedJobFilters(
       await enrichJobsWithClientProfiles(
         enhanceJobsForViewer(jobs, req.query, nearbyOnly === "true")
@@ -250,6 +252,7 @@ export async function getJobs(req, res) {
       success: true,
       message: "Service requests fetched successfully",
       data: enhancedJobs,
+      pagination: { limit, offset, count: enhancedJobs.length },
     });
   } catch (error) {
     logger.error("Error fetching jobs:", error.message);

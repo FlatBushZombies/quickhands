@@ -14,6 +14,7 @@ import testRoutes from '#routes/test.routes.js';
 import { securityMiddleware } from '#middleware/security.middleware.js';
 import { clerkAuth } from '#middleware/clerk.middleware.js';
 import { errorHandler, notFoundHandler } from '#middleware/error.middleware.js';
+import { requestIdMiddleware } from '#middleware/requestId.middleware.js';
 import {
   corsOriginCallback,
   HTTP_CORS_ALLOWED_HEADERS,
@@ -32,6 +33,7 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
+app.use(requestIdMiddleware);
 app.use(helmet());
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));

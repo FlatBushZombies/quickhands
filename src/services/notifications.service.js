@@ -1,7 +1,13 @@
 import logger from "#config/logger.js";
 import { emitToUser } from "#config/socket.js";
 import { sql } from "#config/database.js";
-import { upsertUser } from "#services/user.service.js";
+import {
+  listPushTokensByClerkId,
+  unregisterPushTokenByClerkId,
+  upsertUser,
+} from "#services/user.service.js";
+
+const EXPO_PUSH_API_URL = "https://exp.host/--/api/v2/push/send";
 
 function transformNotification(row) {
   return {
@@ -12,6 +18,96 @@ function transformNotification(row) {
     read: row.read,
     createdAt: row.created_at,
   };
+}
+
+function buildPushTitle(message) {
+  const normalized = String(message || "").toLowerCase();
+
+  if (normalized.includes("in your area")) {
+    return "Job in your area";
+  }
+
+  if (normalized.includes("accepted")) {
+    return "Offer accepted";
+  }
+
+  if (normalized.includes("rejected")) {
+    return "Offer rejected";
+  }
+
+  if (normalized.includes("phone number") || normalized.includes("contact")) {
+    return "Contact shared";
+  }
+
+  return "QuickHands update";
+}
+
+async function sendExpoPushNotifications({ clerkId, jobId, message }) {
+  const pushTokens = await listPushTokensByClerkId(clerkId);
+
+  if (pushTokens.length === 0) {
+    return;
+  }
+
+  const payload = pushTokens.map((entry) => ({
+    to: entry.token,
+    title: buildPushTitle(message),
+    body: message,
+    sound: "default",
+    data: {
+      clerkId,
+      jobId,
+      message,
+    },
+  }));
+
+  const response = await fetch(EXPO_PUSH_API_URL, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Accept-Encoding": "gzip, deflate",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const result = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    logger.warn("Expo push delivery failed", {
+      clerkId,
+      status: response.status,
+      result,
+    });
+    return;
+  }
+
+  const tickets = Array.isArray(result?.data) ? result.data : [];
+  await Promise.all(
+    tickets.map(async (ticket, index) => {
+      if (ticket?.status !== "error") {
+        return;
+      }
+
+      const token = pushTokens[index]?.token;
+      logger.warn("Expo push ticket returned an error", {
+        clerkId,
+        token,
+        details: ticket?.details,
+        message: ticket?.message,
+      });
+
+      if (token && ticket?.details?.error === "DeviceNotRegistered") {
+        await unregisterPushTokenByClerkId(clerkId, token).catch((error) => {
+          logger.warn("Failed to prune stale Expo push token", {
+            clerkId,
+            token,
+            message: error.message,
+          });
+        });
+      }
+    })
+  );
 }
 
 async function resolveNotificationUserId(userId) {
@@ -92,6 +188,12 @@ export async function notifyUser({ clerkId, jobId, message }) {
   emitToUser(clerkId, "notification:new", {
     notification,
   });
+
+  try {
+    await sendExpoPushNotifications({ clerkId, jobId, message });
+  } catch (error) {
+    logger.error("notifyUser push delivery error", error);
+  }
 
   return notification;
 }

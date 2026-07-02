@@ -14,6 +14,7 @@ import {
   buildCommunicationNotificationMessage,
 } from "#utils/communicationCards.js";
 import { notifyUser } from "#services/notifications.service.js";
+import { getIO } from "#config/socket.js";
 
 /**
  * GET /api/messaging/users?q=&limit=
@@ -166,6 +167,13 @@ export async function postConversationMessage(req, res) {
       label,
       clientMessageId,
     });
+
+    // Emit to Socket.IO room so real-time clients receive the message immediately
+    try {
+      getIO().to(`conv:${conversationId}`).emit("message", result.message);
+    } catch {
+      // Socket not initialized (e.g. test environment) — no-op
+    }
 
     const recipient = getOtherParticipant(result.conversation, req.user.clerkId);
     if (recipient) {

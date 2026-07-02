@@ -1,5 +1,11 @@
 import logger from '#config/logger.js';
-import { upsertUser, getUserByClerkId, updateUserLocationByClerkId } from '#services/user.service.js';
+import {
+  getUserByClerkId,
+  registerPushTokenByClerkId,
+  unregisterPushTokenByClerkId,
+  updateUserLocationByClerkId,
+  upsertUser,
+} from '#services/user.service.js';
 import {
   deleteJobTemplate,
   listJobTemplates,
@@ -130,6 +136,44 @@ export const updateUserLocation = async (req, res) => {
     return res.status(
       error.message === 'User not found' || error.message === 'Location details are required' ? 404 : 500
     ).json({ error: error.message || 'Failed to update user location' });
+  }
+};
+
+export const registerMyPushToken = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const { token, platform } = req.body || {};
+    await registerPushTokenByClerkId(req.user.clerkId, token, platform);
+
+    return res.status(200).json({
+      success: true,
+      registered: true,
+    });
+  } catch (error) {
+    logger.error(`Failed to register push token for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(400).json({ success: false, message: error.message || 'Failed to register push token' });
+  }
+};
+
+export const unregisterMyPushToken = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const { token } = req.body || {};
+    await unregisterPushTokenByClerkId(req.user.clerkId, token);
+
+    return res.status(200).json({
+      success: true,
+      removed: true,
+    });
+  } catch (error) {
+    logger.error(`Failed to unregister push token for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(400).json({ success: false, message: error.message || 'Failed to unregister push token' });
   }
 };
 

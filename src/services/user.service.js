@@ -111,6 +111,54 @@ function mergeProfileMetadata(metadata, payload = {}) {
   };
 }
 
+function normalizePushToken(pushToken) {
+  const normalizedToken = asTrimmedString(pushToken);
+  if (
+    !normalizedToken ||
+    (!normalizedToken.startsWith("ExpoPushToken[") &&
+      !normalizedToken.startsWith("ExponentPushToken["))
+  ) {
+    return null;
+  }
+
+  return normalizedToken;
+}
+
+function buildPushTokenEntry(entry) {
+  if (typeof entry === "string") {
+    const token = normalizePushToken(entry);
+    return token
+      ? {
+          token,
+          platform: null,
+          updatedAt: null,
+        }
+      : null;
+  }
+
+  const token = normalizePushToken(entry?.token);
+  if (!token) {
+    return null;
+  }
+
+  return {
+    token,
+    platform: asTrimmedString(entry?.platform) || null,
+    updatedAt: entry?.updatedAt || null,
+  };
+}
+
+function getStoredPushTokens(metadata) {
+  const notifications = asObject(asObject(metadata).notifications);
+  const tokens = Array.isArray(notifications.pushTokens)
+    ? notifications.pushTokens
+    : [];
+
+  return tokens
+    .map(buildPushTokenEntry)
+    .filter(Boolean);
+}
+
 export function buildReviewSummaryFromMetadata(metadata) {
   const reviews = [...(Array.isArray(asObject(metadata).receivedReviews) ? asObject(metadata).receivedReviews : [])]
     .filter((review) => Number.isFinite(Number(review?.rating)))
@@ -401,6 +449,64 @@ export async function patchUserMetadataByClerkId(clerkId, updater) {
   }
 
   return transformUser(updated[0]);
+}
+
+export async function listPushTokensByClerkId(clerkId) {
+  const metadata = await getUserMetadataByClerkId(clerkId);
+  return getStoredPushTokens(metadata);
+}
+
+export async function registerPushTokenByClerkId(clerkId, pushToken, platform) {
+  const normalizedToken = normalizePushToken(pushToken);
+
+  if (!normalizedToken) {
+    throw new Error("A valid Expo push token is required");
+  }
+
+  return patchUserMetadataByClerkId(clerkId, (metadata) => {
+    const notifications = asObject(metadata.notifications);
+    const existingTokens = getStoredPushTokens(metadata).filter(
+      (entry) => entry.token !== normalizedToken
+    );
+
+    return {
+      ...metadata,
+      notifications: {
+        ...notifications,
+        pushTokens: [
+          {
+            token: normalizedToken,
+            platform: asTrimmedString(platform) || null,
+            updatedAt: new Date().toISOString(),
+          },
+          ...existingTokens,
+        ].slice(0, 5),
+      },
+    };
+  });
+}
+
+export async function unregisterPushTokenByClerkId(clerkId, pushToken) {
+  const normalizedToken = normalizePushToken(pushToken);
+
+  if (!normalizedToken) {
+    return patchUserMetadataByClerkId(clerkId, (metadata) => metadata);
+  }
+
+  return patchUserMetadataByClerkId(clerkId, (metadata) => {
+    const notifications = asObject(metadata.notifications);
+    const remainingTokens = getStoredPushTokens(metadata).filter(
+      (entry) => entry.token !== normalizedToken
+    );
+
+    return {
+      ...metadata,
+      notifications: {
+        ...notifications,
+        pushTokens: remainingTokens,
+      },
+    };
+  });
 }
 
 export async function updateUserLocationByClerkId(clerkId, locationPayload) {

@@ -184,11 +184,13 @@ export async function getJobById(jobId) {
   }
 }
 
-export async function getAllJobs(clerkId = null) {
+export async function getAllJobs(clerkId = null, { limit, offset } = {}) {
   try {
     const result = await queryJobs({
       whereClauses: clerkId ? ["clerk_id = $1"] : [],
       params: clerkId ? [clerkId] : [],
+      ...(limit !== undefined ? { limit } : {}),
+      ...(offset !== undefined ? { offset } : {}),
     });
 
     logger.info(`Fetched ${result.length} service requests successfully`);

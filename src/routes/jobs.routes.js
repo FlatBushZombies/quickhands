@@ -11,7 +11,7 @@ router.get("/:id", getJob);
 router.post("/", requireAuth, createJobController);
 
 // Application routes
-router.post("/:id/apply", applyToJob);
+router.post("/:id/apply", requireAuth, applyToJob);
 router.get("/:id/applications", requireAuth, getJobApplications);
 
 export default router;

@@ -6,7 +6,9 @@ import {
   getUserProfileByClerkId,
   getUserProfileByQuery,
   getUserReviews,
+  registerMyPushToken,
   saveMyJobTemplate,
+  unregisterMyPushToken,
   updateUserOnboarding,
   updateUserLocation,
 } from '#controllers/user.controller.js';
@@ -19,6 +21,8 @@ router.get('/get', getUserProfileByQuery);
 router.get('/me/templates', requireAuth, getMyJobTemplates);
 router.post('/me/templates', requireAuth, saveMyJobTemplate);
 router.delete('/me/templates/:id', requireAuth, deleteMyJobTemplate);
+router.patch('/me/push-token', requireAuth, registerMyPushToken);
+router.delete('/me/push-token', requireAuth, unregisterMyPushToken);
 router.get('/:clerkId/reviews', getUserReviews);
 router.get('/:clerkId', getUserProfileByClerkId);
 router.post('/update', updateUserOnboarding);
