@@ -12,6 +12,7 @@ function applyAuthenticatedUser(req, payload) {
     userName: payload.name || payload.email || "Anonymous",
     userAvatar: payload.picture || null,
     clerkIssuer: payload.iss || null,
+    role: "user",
   };
 }
 

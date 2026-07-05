@@ -4,16 +4,16 @@ import logger from "#config/logger.js";
 
 const RATE_LIMITS_BY_ROLE = {
   admin: {
-    limit: 100,
+    limit: 200,
     message: "Admin request limit exceeded",
   },
   user: {
-    limit: 50,
-    message: "User request limit exceeded",
+    limit: 120,
+    message: "Too many requests. Please slow down.",
   },
   guest: {
-    limit: 30,
-    message: "Guest request limit exceeded",
+    limit: 60,
+    message: "Too many requests. Please slow down.",
   },
 };
 
@@ -72,10 +72,9 @@ export const securityMiddleware = async (req, res, next) => {
         role,
       });
 
-      return res.status(403).json({
-        error: "Forbidden",
-        message: "Too many requests",
-        details: rateLimitConfig.message,
+      return res.status(429).json({
+        success: false,
+        message: rateLimitConfig.message,
       });
     }
 

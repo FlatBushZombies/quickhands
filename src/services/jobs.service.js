@@ -128,7 +128,7 @@ async function queryJobs({ whereClauses = [], params = [], orderBy = "created_at
     paginationClause += ` OFFSET $${queryParams.length}`;
   }
 
-  return sql(
+  return sql.query(
     `SELECT ${selectColumns} FROM service_request ${whereClause} ORDER BY ${orderBy} ${paginationClause};`,
     queryParams
   );
@@ -136,7 +136,7 @@ async function queryJobs({ whereClauses = [], params = [], orderBy = "created_at
 
 async function countJobs({ whereClauses = [], params = [] }) {
   const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
-  const result = await sql(
+  const result = await sql.query(
     `SELECT COUNT(*) AS total FROM service_request ${whereClause};`,
     params
   );
@@ -249,7 +249,7 @@ export async function createJob(jobData) {
     const placeholders = values.map((_, index) => `$${index + 1}`).join(", ");
     const returningColumns = buildJobSelectColumns(columnState);
 
-    const result = await sql(
+    const result = await sql.query(
       `INSERT INTO service_request (${columns.join(", ")}) VALUES (${placeholders}) RETURNING ${returningColumns};`,
       values
     );
