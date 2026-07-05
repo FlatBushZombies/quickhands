@@ -14,6 +14,9 @@ export const COMMUNICATION_TAGS = {
     { kind: "need-quote-update", label: "Need quote update" },
     { kind: "confirm-arrival", label: "Confirm arrival" },
   ],
+  system: [
+    { kind: "application-submitted", label: "Applied for job" },
+  ],
 };
 
 function trimOptionalString(value) {
@@ -22,9 +25,11 @@ function trimOptionalString(value) {
 
 function findTagByKind(kind) {
   const normalizedKind = trimOptionalString(kind);
-  return [...COMMUNICATION_TAGS.freelancer, ...COMMUNICATION_TAGS.client].find(
-    (entry) => entry.kind === normalizedKind
-  );
+  return [
+    ...COMMUNICATION_TAGS.freelancer,
+    ...COMMUNICATION_TAGS.client,
+    ...COMMUNICATION_TAGS.system,
+  ].find((entry) => entry.kind === normalizedKind);
 }
 
 export function parseCommunicationCardText(text) {

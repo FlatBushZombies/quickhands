@@ -12,8 +12,9 @@ import {
 } from "#services/application.service.js";
 import { saveClientApplicationPreference } from "#services/applicationPreferences.service.js";
 import { getJobById } from "#services/jobs.service.js";
-import { ensureJobConversation } from "#services/messaging.service.js";
+import { ensureJobConversation, saveConversationMessage } from "#services/messaging.service.js";
 import { notifyUser } from "#services/notifications.service.js";
+import { buildCommunicationCardText } from "#utils/communicationCards.js";
 import {
   getApplicationReviewMatrix,
   upsertApplicationReview,
@@ -203,6 +204,20 @@ export async function applyToJob(req, res) {
         currentUserName: userName || "Freelancer",
         otherClerkId: job.clerkId,
         otherUserName: job.userName || "Client",
+      });
+
+      // Post an automatic application card so both parties see a first message
+      const noteLines = [];
+      if (quotation) noteLines.push(`Quote: ${quotation}`);
+      if (conditions) noteLines.push(conditions);
+
+      await saveConversationMessage({
+        conversationId: conversation.conversationId,
+        senderClerkId: userId,
+        senderName: userName || "Freelancer",
+        tag: "application-submitted",
+        label: "Applied for job",
+        note: noteLines.length ? noteLines.join(" · ") : null,
       });
     } catch (conversationError) {
       logger.error("[Apply] Error creating job conversation:", conversationError);
