@@ -2,10 +2,12 @@ import express from 'express';
 import {
   createOrRegisterUser,
   deleteMyJobTemplate,
+  getDeviceLocationToken,
   getMyJobTemplates,
   getUserProfileByClerkId,
   getUserProfileByQuery,
   getUserReviews,
+  pingLocation,
   registerMyPushToken,
   saveMyJobTemplate,
   unregisterMyPushToken,
@@ -27,5 +29,7 @@ router.get('/:clerkId/reviews', getUserReviews);
 router.get('/:clerkId', getUserProfileByClerkId);
 router.post('/update', updateUserOnboarding);
 router.patch('/location', requireAuth, updateUserLocation);
+router.post('/device-location-token', requireAuth, getDeviceLocationToken);
+router.post('/location/ping', pingLocation);
 
 export default router;

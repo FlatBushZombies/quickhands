@@ -16,11 +16,27 @@ function transformNotification(row) {
     jobId: row.job_id,
     message: row.message,
     read: row.read,
+    type: row.type || null,
+    conversationId: row.conversation_id || null,
     createdAt: row.created_at,
   };
 }
 
-function buildPushTitle(message) {
+const PUSH_TITLES_BY_TYPE = {
+  message: "New message",
+  job_match: "Job in your area",
+  new_application: "New application",
+  application_accepted: "Offer accepted",
+  application_rejected: "Offer rejected",
+  contact_shared: "Contact shared",
+  proximity: "Freelancer nearby",
+};
+
+function buildPushTitle(message, type) {
+  if (type && PUSH_TITLES_BY_TYPE[type]) {
+    return PUSH_TITLES_BY_TYPE[type];
+  }
+
   const normalized = String(message || "").toLowerCase();
 
   if (normalized.includes("in your area")) {
@@ -42,7 +58,7 @@ function buildPushTitle(message) {
   return "QuickHands update";
 }
 
-async function sendExpoPushNotifications({ clerkId, jobId, message }) {
+async function sendExpoPushNotifications({ clerkId, jobId, message, type, conversationId }) {
   const pushTokens = await listPushTokensByClerkId(clerkId);
 
   if (pushTokens.length === 0) {
@@ -51,13 +67,15 @@ async function sendExpoPushNotifications({ clerkId, jobId, message }) {
 
   const payload = pushTokens.map((entry) => ({
     to: entry.token,
-    title: buildPushTitle(message),
+    title: buildPushTitle(message, type),
     body: message,
     sound: "default",
     data: {
       clerkId,
       jobId,
       message,
+      type: type || null,
+      conversationId: conversationId || null,
     },
   }));
 
@@ -152,7 +170,7 @@ async function resolveNotificationUserId(userId) {
   return result[0].id;
 }
 
-export async function createNotification({ userId, jobId, message }) {
+export async function createNotification({ userId, jobId, message, type = null, conversationId = null }) {
   try {
     const resolvedUserId = await resolveNotificationUserId(userId);
     if (!resolvedUserId) {
@@ -160,11 +178,11 @@ export async function createNotification({ userId, jobId, message }) {
     }
     const result = await sql.query(
       `
-        INSERT INTO notifications (user_id, job_id, message, read, created_at)
-        VALUES ($1, $2, $3, false, NOW())
+        INSERT INTO notifications (user_id, job_id, message, read, type, conversation_id, created_at)
+        VALUES ($1, $2, $3, false, $4, $5, NOW())
         RETURNING *;
       `,
-      [resolvedUserId, jobId, message]
+      [resolvedUserId, jobId, message, type, conversationId]
     );
 
     const notification = transformNotification(result[0]);
@@ -178,11 +196,13 @@ export async function createNotification({ userId, jobId, message }) {
   }
 }
 
-export async function notifyUser({ clerkId, jobId, message }) {
+export async function notifyUser({ clerkId, jobId, message, type = null, conversationId = null }) {
   const notification = await createNotification({
     userId: clerkId,
     jobId,
     message,
+    type,
+    conversationId,
   });
 
   emitToUser(clerkId, "notification:new", {
@@ -190,7 +210,7 @@ export async function notifyUser({ clerkId, jobId, message }) {
   });
 
   try {
-    await sendExpoPushNotifications({ clerkId, jobId, message });
+    await sendExpoPushNotifications({ clerkId, jobId, message, type, conversationId });
   } catch (error) {
     logger.error("notifyUser push delivery error", error);
   }

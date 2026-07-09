@@ -25,7 +25,11 @@ export const jobApplications = pgTable("job_applications", {
   
   // Application status
   status: applicationStatusEnum("status").default("pending").notNull(),
-  
+
+  // Set when the client was last notified that this freelancer is near
+  // the job site; cleared once they move away so re-approach re-notifies.
+  proximity_notified_at: timestamp("proximity_notified_at"),
+
   // Timestamps
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),

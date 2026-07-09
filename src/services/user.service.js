@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
 import { normalizeLocationPayload } from "#utils/location.js";
@@ -449,6 +450,47 @@ export async function patchUserMetadataByClerkId(clerkId, updater) {
   }
 
   return transformUser(updated[0]);
+}
+
+/**
+ * Long-lived opaque token used only to authenticate background location
+ * pings (see #services/proximity.service.js) — separate from Clerk auth
+ * because background tasks have no React tree and can't refresh a short
+ * lived Clerk session JWT. Mirrors how Expo push tokens are stored, just
+ * for a different low-sensitivity purpose (posting a lat/long).
+ */
+export async function getOrCreateDeviceLocationToken(clerkId) {
+  const metadata = await getUserMetadataByClerkId(clerkId);
+  if (typeof metadata.deviceLocationToken === "string" && metadata.deviceLocationToken) {
+    return metadata.deviceLocationToken;
+  }
+
+  const token = randomUUID();
+  await patchUserMetadataByClerkId(clerkId, (current) => ({
+    ...current,
+    deviceLocationToken: token,
+  }));
+
+  return token;
+}
+
+export async function getClerkIdByDeviceLocationToken(token) {
+  const normalizedToken = typeof token === "string" ? token.trim() : "";
+  if (!normalizedToken) {
+    return null;
+  }
+
+  const result = await sql.query(
+    `
+      SELECT clerk_id
+      FROM users
+      WHERE metadata->>'deviceLocationToken' = $1
+      LIMIT 1;
+    `,
+    [normalizedToken]
+  );
+
+  return result[0]?.clerk_id || null;
 }
 
 export async function listPushTokensByClerkId(clerkId) {

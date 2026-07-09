@@ -15,6 +15,7 @@ import { getJobById } from "#services/jobs.service.js";
 import { ensureJobConversation, saveConversationMessage } from "#services/messaging.service.js";
 import { notifyUser } from "#services/notifications.service.js";
 import { buildCommunicationCardText } from "#utils/communicationCards.js";
+import { conversationIdForJobClerkPair } from "#utils/conversationId.js";
 import {
   getApplicationReviewMatrix,
   upsertApplicationReview,
@@ -174,11 +175,12 @@ export async function applyToJob(req, res) {
       });
     }
 
-    if (existingApplicationsCount >= 5) {
-      logger.warn(`[Apply] Job ${jobId} already has 5 applications. Rejecting new application.`);
+    const maxApplicationsPerJob = Number(process.env.MAX_APPLICATIONS_PER_JOB) || 5;
+    if (existingApplicationsCount >= maxApplicationsPerJob) {
+      logger.warn(`[Apply] Job ${jobId} already has ${maxApplicationsPerJob} applications. Rejecting new application.`);
       return res.status(400).json({
         success: false,
-        message: "This job already has the maximum number of applications (5). Better luck next time!",
+        message: `This job already has the maximum number of applications (${maxApplicationsPerJob}). Better luck next time!`,
         limitReached: true,
       });
     }
@@ -228,6 +230,8 @@ export async function applyToJob(req, res) {
         clerkId: job.clerkId,
         jobId: Number(jobId),
         message: `${userName || "A freelancer"} applied to your "${job.serviceType}" job.`,
+        type: "new_application",
+        conversationId: conversation?.conversationId || null,
       });
     } catch (notificationError) {
       logger.error("[Apply] Error notifying client about application:", notificationError);
@@ -427,6 +431,17 @@ export async function updateApplicationStatusController(req, res) {
           message: contactSharedNow
             ? `${buildApplicationNotificationTitle(normalizedStatus, job)} Contact details were also shared for follow-up.`
             : buildApplicationNotificationTitle(normalizedStatus, job),
+          type:
+            normalizedStatus === "accepted"
+              ? "application_accepted"
+              : normalizedStatus === "rejected"
+                ? "application_rejected"
+                : "application_status",
+          conversationId: conversationIdForJobClerkPair(
+            updatedApplication.jobId,
+            updatedApplication.freelancerClerkId,
+            user?.clerkId || job.clerkId
+          ),
         });
       } catch (notificationError) {
         logger.error("Error notifying freelancer about application status update:", notificationError);
@@ -525,6 +540,12 @@ export async function shareApplicationContactController(req, res) {
           clerkId: updatedApplication.freelancerClerkId,
           jobId: updatedApplication.jobId,
           message: `Contact details were shared for "${job.serviceType}". You can now follow up directly.`,
+          type: "contact_shared",
+          conversationId: conversationIdForJobClerkPair(
+            updatedApplication.jobId,
+            updatedApplication.freelancerClerkId,
+            user?.clerkId || job.clerkId
+          ),
         });
       } catch (notificationError) {
         logger.error("Error notifying freelancer about contact handoff:", notificationError);

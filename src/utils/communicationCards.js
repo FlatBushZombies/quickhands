@@ -85,6 +85,10 @@ export function buildCommunicationNotificationMessage({
   const displayName = trimOptionalString(senderName) || "Someone";
   const jobTitle = trimOptionalString(conversation?.jobTitle);
 
+  if (parsedCard?.kind === "message") {
+    return `${displayName}: ${parsedCard.label}`;
+  }
+
   if (parsedCard) {
     return `Status update: ${displayName} shared "${parsedCard.label}"${jobTitle ? ` for "${jobTitle}"` : ""}.`;
   }

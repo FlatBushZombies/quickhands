@@ -266,3 +266,25 @@
 {"level":"info","message":"Application 17 contact details updated","service":"quickhands-api","timestamp":"2026-04-08T15:46:01.624Z"}
 {"level":"info","message":"Application 17 contact details cleared","service":"quickhands-api","timestamp":"2026-04-08T15:46:24.707Z"}
 {"level":"info","message":"Retrieved 11 total applications","service":"quickhands-api","timestamp":"2026-05-01T09:51:42.842Z"}
+{"level":"info","message":"Socket.IO initialized (Clerk JWT auth; messaging events)","service":"quickhands-api","timestamp":"2026-07-09T11:00:50.690Z"}
+{"level":"info","message":"Listening on Port:3000","service":"quickhands-api","timestamp":"2026-07-09T11:00:50.732Z"}
+{"level":"info","message":"Socket.IO initialized (Clerk JWT auth; messaging events)","service":"quickhands-api","timestamp":"2026-07-09T11:01:13.589Z"}
+{"level":"info","message":"Listening on Port:3000","service":"quickhands-api","timestamp":"2026-07-09T11:01:13.611Z"}
+{"ip":"::ffff:127.0.0.1","level":"warn","message":"Bot request blocked","path":"/api/user/location/ping","service":"quickhands-api","timestamp":"2026-07-09T11:01:13.907Z","userAgent":"curl/8.15.0"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [09/Jul/2026:11:01:13 +0000] \"POST /api/user/location/ping HTTP/1.1\" 403 68 \"-\" \"curl/8.15.0\"","service":"quickhands-api","timestamp":"2026-07-09T11:01:13.916Z"}
+{"ip":"::1","level":"warn","message":"Bot request blocked","path":"/api/user/location/ping","service":"quickhands-api","timestamp":"2026-07-09T11:01:14.032Z","userAgent":"curl/8.15.0"}
+{"level":"info","message":"::1 - - [09/Jul/2026:11:01:14 +0000] \"POST /api/user/location/ping HTTP/1.1\" 403 68 \"-\" \"curl/8.15.0\"","service":"quickhands-api","timestamp":"2026-07-09T11:01:14.034Z"}
+{"ip":"::1","level":"warn","message":"Bot request blocked","path":"/api/user/device-location-token","service":"quickhands-api","timestamp":"2026-07-09T11:01:14.175Z","userAgent":"curl/8.15.0"}
+{"level":"info","message":"::1 - - [09/Jul/2026:11:01:14 +0000] \"POST /api/user/device-location-token HTTP/1.1\" 403 68 \"-\" \"curl/8.15.0\"","service":"quickhands-api","timestamp":"2026-07-09T11:01:14.177Z"}
+{"ip":"::1","level":"warn","message":"Bot request blocked","path":"/api/jobs","service":"quickhands-api","timestamp":"2026-07-09T11:01:14.291Z","userAgent":"curl/8.15.0"}
+{"level":"info","message":"::1 - - [09/Jul/2026:11:01:14 +0000] \"POST /api/jobs HTTP/1.1\" 403 68 \"-\" \"curl/8.15.0\"","service":"quickhands-api","timestamp":"2026-07-09T11:01:14.293Z"}
+{"ip":"::1","level":"warn","message":"Bot request blocked","path":"/api/user/location/ping","service":"quickhands-api","timestamp":"2026-07-09T11:01:30.726Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+{"level":"info","message":"::1 - - [09/Jul/2026:11:01:30 +0000] \"POST /api/user/location/ping HTTP/1.1\" 403 68 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\"","service":"quickhands-api","timestamp":"2026-07-09T11:01:30.730Z"}
+{"ip":"::1","level":"warn","message":"Bot request blocked","path":"/api/user/location/ping","service":"quickhands-api","timestamp":"2026-07-09T11:01:30.887Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+{"level":"info","message":"::1 - - [09/Jul/2026:11:01:30 +0000] \"POST /api/user/location/ping HTTP/1.1\" 403 68 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\"","service":"quickhands-api","timestamp":"2026-07-09T11:01:30.888Z"}
+{"ip":"::1","level":"warn","message":"Bot request blocked","path":"/api/user/device-location-token","service":"quickhands-api","timestamp":"2026-07-09T11:01:31.043Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+{"level":"info","message":"::1 - - [09/Jul/2026:11:01:31 +0000] \"POST /api/user/device-location-token HTTP/1.1\" 403 68 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\"","service":"quickhands-api","timestamp":"2026-07-09T11:01:31.044Z"}
+{"ip":"::1","level":"warn","message":"Bot request blocked","path":"/api/jobs","service":"quickhands-api","timestamp":"2026-07-09T11:01:31.207Z","userAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+{"level":"info","message":"::1 - - [09/Jul/2026:11:01:31 +0000] \"POST /api/jobs HTTP/1.1\" 403 68 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\"","service":"quickhands-api","timestamp":"2026-07-09T11:01:31.209Z"}
+{"level":"info","message":"Socket.IO initialized (Clerk JWT auth; messaging events)","service":"quickhands-api","timestamp":"2026-07-09T11:33:58.983Z"}
+{"level":"info","message":"Listening on Port:3000","service":"quickhands-api","timestamp":"2026-07-09T11:33:59.029Z"}

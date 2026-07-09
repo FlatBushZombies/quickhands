@@ -187,6 +187,8 @@ export async function postConversationMessage(req, res) {
               conversation: result.conversation,
               text: result.message.text,
             }),
+            type: "message",
+            conversationId: result.conversation.conversationId,
           });
         } catch (notificationError) {
           logger.error("postConversationMessage notification error:", notificationError);

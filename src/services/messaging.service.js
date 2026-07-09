@@ -456,14 +456,16 @@ export async function saveConversationMessage({
   const normalizedText =
     tag || label
       ? buildCommunicationCardText({ kind: tag, note, label })
-      : trimmedText;
+      : trimmedText
+        ? buildCommunicationCardText({ kind: "message", label: trimmedText })
+        : "";
 
   if (!normalizedText) {
-    throw new Error("Only lightweight communication tags are allowed");
+    throw new Error("Message text or a communication tag is required");
   }
 
   if (!parseCommunicationCardText(normalizedText)) {
-    throw new Error("Only lightweight communication tags are allowed");
+    throw new Error("Message text or a communication tag is required");
   }
 
   if (normalizedText.length > MAX_MESSAGE_LENGTH) {

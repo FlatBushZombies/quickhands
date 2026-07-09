@@ -1,5 +1,7 @@
 import logger from '#config/logger.js';
 import {
+  getClerkIdByDeviceLocationToken,
+  getOrCreateDeviceLocationToken,
   getUserByClerkId,
   registerPushTokenByClerkId,
   unregisterPushTokenByClerkId,
@@ -13,6 +15,23 @@ import {
 } from '#services/templates.service.js';
 import { listReceivedReviews } from '#services/reviews.service.js';
 import { normalizeLocationPayload } from '#utils/location.js';
+import { checkJobProximityForFreelancer } from '#services/proximity.service.js';
+
+/**
+ * Shared by both the Clerk-authed PATCH /user/location controller and the
+ * device-token-authed POST /user/location/ping controller (used by the
+ * freelance app's background location task, which has no Clerk session to
+ * refresh) — keeps the update+proximity-check pairing in one place.
+ */
+async function applyFreelancerLocationUpdate(clerkId, location) {
+  const user = await updateUserLocationByClerkId(clerkId, location);
+
+  checkJobProximityForFreelancer(clerkId, location).catch((proximityError) => {
+    logger.error(`Proximity check failed for clerk_id=${clerkId}:`, proximityError);
+  });
+
+  return user;
+}
 
 export const createOrRegisterUser = async (req, res) => {
   const { clerkId, name, email, imageUrl } = req.body || {};
@@ -124,7 +143,7 @@ export const updateUserLocation = async (req, res) => {
       return res.status(400).json({ error: 'A valid location is required' });
     }
 
-    const user = await updateUserLocationByClerkId(clerkId, location);
+    const user = await applyFreelancerLocationUpdate(clerkId, location);
 
     return res.status(200).json({
       success: true,
@@ -136,6 +155,58 @@ export const updateUserLocation = async (req, res) => {
     return res.status(
       error.message === 'User not found' || error.message === 'Location details are required' ? 404 : 500
     ).json({ error: error.message || 'Failed to update user location' });
+  }
+};
+
+/**
+ * Clerk-authed. Called once from the foreground app to fetch (or create)
+ * the opaque device-location token, which is then cached in SecureStore and
+ * used by the background location task instead of a Clerk session JWT.
+ */
+export const getDeviceLocationToken = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const token = await getOrCreateDeviceLocationToken(req.user.clerkId);
+    return res.status(200).json({ success: true, token });
+  } catch (error) {
+    logger.error(`Failed to get device location token for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(500).json({ success: false, message: 'Failed to get device location token' });
+  }
+};
+
+/**
+ * NOT Clerk-authed — gated by the opaque device-location token in the body
+ * instead, since this is called from a background task with no React tree
+ * to refresh a Clerk session JWT. Only allows posting a lat/long; nothing
+ * more sensitive is exposed through this path.
+ */
+export const pingLocation = async (req, res) => {
+  const { deviceLocationToken } = req.body || {};
+
+  try {
+    if (typeof deviceLocationToken !== 'string' || !deviceLocationToken.trim()) {
+      return res.status(400).json({ error: 'deviceLocationToken is required' });
+    }
+
+    const clerkId = await getClerkIdByDeviceLocationToken(deviceLocationToken.trim());
+    if (!clerkId) {
+      return res.status(401).json({ error: 'Invalid device location token' });
+    }
+
+    const location = normalizeLocationPayload(req.body || {});
+    if (location.latitude === null || location.longitude === null) {
+      return res.status(400).json({ error: 'A valid latitude and longitude are required' });
+    }
+
+    await applyFreelancerLocationUpdate(clerkId, location);
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    logger.error('Failed to process background location ping:', error);
+    return res.status(500).json({ error: 'Failed to process location ping' });
   }
 };
 

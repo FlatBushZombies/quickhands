@@ -1,6 +1,11 @@
 import logger from '#config/logger.js';
 import { sql } from '#config/database.js';
-import { annotateLocationMatch, hasCoordinates, normalizeLocationPayload } from '#utils/location.js';
+import {
+  annotateLocationMatch,
+  DEFAULT_NEARBY_RADIUS_KM,
+  hasCoordinates,
+  normalizeLocationPayload,
+} from '#utils/location.js';
 
 function normalizeTerm(term) {
   return String(term || '').trim().toLowerCase();
@@ -11,6 +16,26 @@ function buildMetadataLocation(metadata) {
   return normalizeLocationPayload(safeMetadata.location || {});
 }
 
+const MATCH_QUERY_ROW_LIMIT = 500;
+
+/**
+ * Rough bounding box in degrees for a radius in km, so the DB can prune
+ * candidates before the precise Haversine calc runs in JS. Longitude
+ * degrees shrink toward the poles, so it's scaled by cos(latitude);
+ * clamped so it never blows up near +/-90.
+ */
+function boundingBoxForRadius(origin, radiusKm) {
+  const latDeltaDeg = radiusKm / 111;
+  const lonDeltaDeg = radiusKm / (111 * Math.max(Math.cos((origin.latitude * Math.PI) / 180), 0.01));
+
+  return {
+    minLat: origin.latitude - latDeltaDeg,
+    maxLat: origin.latitude + latDeltaDeg,
+    minLon: origin.longitude - lonDeltaDeg,
+    maxLon: origin.longitude + lonDeltaDeg,
+  };
+}
+
 export async function findUsersMatchingJob({ serviceType, selectedServices, jobLocation, radiusKm }) {
   try {
     const baseTerms = [];
@@ -18,14 +43,45 @@ export async function findUsersMatchingJob({ serviceType, selectedServices, jobL
     if (Array.isArray(selectedServices)) baseTerms.push(...selectedServices);
 
     const terms = Array.from(new Set(baseTerms.map(normalizeTerm))).filter(Boolean);
-    const result = await sql`
-      SELECT id, clerk_id, skills, metadata
-      FROM users
-      WHERE clerk_id IS NOT NULL;
-    `;
-
     const normalizedJobLocation = normalizeLocationPayload(jobLocation || {});
     const hasNearbyCoordinates = hasCoordinates(normalizedJobLocation);
+    const effectiveRadiusKm = radiusKm || DEFAULT_NEARBY_RADIUS_KM;
+
+    let result;
+    if (hasNearbyCoordinates) {
+      const { minLat, maxLat, minLon, maxLon } = boundingBoxForRadius(
+        normalizedJobLocation,
+        effectiveRadiusKm
+      );
+
+      result = await sql`
+        SELECT id, clerk_id, skills, metadata
+        FROM users
+        WHERE clerk_id IS NOT NULL
+          AND metadata->'location'->>'latitude' ~ '^-?[0-9]+\.?[0-9]*$'
+          AND metadata->'location'->>'longitude' ~ '^-?[0-9]+\.?[0-9]*$'
+          AND (metadata->'location'->>'latitude')::numeric BETWEEN ${minLat} AND ${maxLat}
+          AND (metadata->'location'->>'longitude')::numeric BETWEEN ${minLon} AND ${maxLon}
+        LIMIT ${MATCH_QUERY_ROW_LIMIT};
+      `;
+    } else if (terms.length > 0) {
+      const likeTerms = terms.map((term) => `%${term}%`);
+      result = await sql`
+        SELECT id, clerk_id, skills, metadata
+        FROM users
+        WHERE clerk_id IS NOT NULL
+          AND skills ILIKE ANY(${likeTerms})
+        LIMIT ${MATCH_QUERY_ROW_LIMIT};
+      `;
+    } else {
+      result = await sql`
+        SELECT id, clerk_id, skills, metadata
+        FROM users
+        WHERE clerk_id IS NOT NULL
+        LIMIT ${MATCH_QUERY_ROW_LIMIT};
+      `;
+    }
+
     const matched = result
       .map((row) => {
         const freelancerLocation = buildMetadataLocation(row.metadata);

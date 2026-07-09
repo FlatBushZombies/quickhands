@@ -300,6 +300,31 @@ export async function createJobController(req, res) {
       });
     }
 
+    if (Number.isNaN(Date.parse(startDate)) || Number.isNaN(Date.parse(endDate))) {
+      return res.status(400).json({
+        success: false,
+        message: "startDate and endDate must be valid dates",
+      });
+    }
+
+    if (new Date(endDate) < new Date(startDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "endDate cannot be before startDate",
+      });
+    }
+
+    let normalizedMaxPrice = 0;
+    if (maxPrice !== undefined && maxPrice !== null && maxPrice !== "") {
+      normalizedMaxPrice = Number(maxPrice);
+      if (!Number.isFinite(normalizedMaxPrice) || normalizedMaxPrice < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "maxPrice must be a valid non-negative number",
+        });
+      }
+    }
+
     const normalizedSelectedServices = parseStringArray(selectedServices);
     const normalizedDocuments = parseStringArray(documents);
     const normalizedLocation = normalizeLocationPayload(rawLocation || req.body);
@@ -309,7 +334,7 @@ export async function createJobController(req, res) {
       selectedServices: JSON.stringify(normalizedSelectedServices),
       startDate,
       endDate,
-      maxPrice: Number(maxPrice) || 0,
+      maxPrice: normalizedMaxPrice,
       specialistChoice: specialistChoice || null,
       additionalInfo: additionalInfo || null,
       documents: JSON.stringify(normalizedDocuments),
@@ -339,6 +364,7 @@ export async function createJobController(req, res) {
             clerkId: matchedUser.clerkId,
             jobId: newJob.id,
             message: `New "${newJob.serviceType}" job${buildInYourAreaPhrase(matchedUser.locationMatch)}.`,
+            type: "job_match",
           }).catch((notificationError) => {
             logger.error("Error notifying matched freelancer", notificationError);
           })
