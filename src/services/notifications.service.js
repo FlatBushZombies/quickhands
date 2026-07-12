@@ -9,6 +9,19 @@ import {
 
 const EXPO_PUSH_API_URL = "https://exp.host/--/api/v2/push/send";
 
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
+
+function clampLimit(limit) {
+  const parsed = Number(limit) || DEFAULT_LIMIT;
+  return Math.min(MAX_LIMIT, Math.max(1, parsed));
+}
+
+function clampOffset(offset) {
+  const parsed = Number(offset) || 0;
+  return Math.max(0, parsed);
+}
+
 function transformNotification(row) {
   return {
     id: row.id,
@@ -218,16 +231,20 @@ export async function notifyUser({ clerkId, jobId, message, type = null, convers
   return notification;
 }
 
-export async function getNotificationsByUserId(userId) {
+export async function getNotificationsByUserId(userId, opts = {}) {
+  const limit = clampLimit(opts.limit);
+  const offset = clampOffset(opts.offset);
+
   try {
     const result = await sql.query(
       `
         SELECT *
         FROM notifications
         WHERE user_id = $1
-        ORDER BY created_at DESC;
+        ORDER BY created_at DESC
+        LIMIT $2 OFFSET $3;
       `,
-      [userId]
+      [userId, limit, offset]
     );
 
     return result.map(transformNotification);
@@ -237,7 +254,10 @@ export async function getNotificationsByUserId(userId) {
   }
 }
 
-export async function getNotificationsByClerkId(clerkId) {
+export async function getNotificationsByClerkId(clerkId, opts = {}) {
+  const limit = clampLimit(opts.limit);
+  const offset = clampOffset(opts.offset);
+
   try {
     const result = await sql.query(
       `
@@ -245,9 +265,10 @@ export async function getNotificationsByClerkId(clerkId) {
         FROM notifications n
         JOIN users u ON u.id = n.user_id
         WHERE u.clerk_id = $1
-        ORDER BY n.created_at DESC;
+        ORDER BY n.created_at DESC
+        LIMIT $2 OFFSET $3;
       `,
-      [clerkId]
+      [clerkId, limit, offset]
     );
 
     return result.map(transformNotification);

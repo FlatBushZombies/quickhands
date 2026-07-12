@@ -6,6 +6,22 @@ import {
   markNotificationRead,
 } from "#services/notifications.service.js";
 
+function parsePaginationQuery(query) {
+  const opts = {};
+
+  const limit = Number.parseInt(query.limit, 10);
+  if (Number.isInteger(limit) && limit > 0) {
+    opts.limit = limit;
+  }
+
+  const offset = Number.parseInt(query.offset, 10);
+  if (Number.isInteger(offset) && offset >= 0) {
+    opts.offset = offset;
+  }
+
+  return opts;
+}
+
 export async function getUserNotifications(req, res) {
   try {
     const { userId } = req.params;
@@ -21,7 +37,10 @@ export async function getUserNotifications(req, res) {
       });
     }
 
-    const notifications = await getNotificationsByUserId(numericId);
+    const notifications = await getNotificationsByUserId(
+      numericId,
+      parsePaginationQuery(req.query)
+    );
     return res.status(200).json({ success: true, notifications });
   } catch (error) {
     logger.error("getUserNotifications error", error);
@@ -36,7 +55,10 @@ export async function getUserNotificationsByClerkId(req, res) {
       return res.status(400).json({ error: "clerkId is required" });
     }
 
-    const notifications = await getNotificationsByClerkId(clerkId);
+    const notifications = await getNotificationsByClerkId(
+      clerkId,
+      parsePaginationQuery(req.query)
+    );
     return res.status(200).json({ success: true, notifications });
   } catch (error) {
     logger.error("getUserNotificationsByClerkId error", error);

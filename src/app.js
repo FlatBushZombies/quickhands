@@ -1,6 +1,7 @@
 import express from 'express';
 import logger from '#config/logger.js';
 import helmet from "helmet"
+import compression from 'compression';
 import morgan from 'morgan';
 import cors from 'cors'
 import cookieParser from 'cookie-parser';
@@ -35,6 +36,7 @@ const corsOptions = {
 
 app.use(requestIdMiddleware);
 app.use(helmet());
+app.use(compression());
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 app.use(express.json());
@@ -48,9 +50,6 @@ app.use(
   })
 );
 
-app.use(clerkAuth);
-app.use(securityMiddleware);
-
 app.get('/', (req, res) => {
 
     logger.info('Root endpoint from Quickhands API');
@@ -60,6 +59,9 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'OK', timestamp: new Date().toISOString(), uptime: process.uptime()})
 })
+
+app.use(clerkAuth);
+app.use(securityMiddleware);
 
 app.get('/api', (req, res) => {
     res.status(200).json({ message: 'Quickhands API is runnning'})
