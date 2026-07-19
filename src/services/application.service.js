@@ -235,7 +235,7 @@ export async function getApplicationsByFreelancerId(clerkId) {
  * Update application status
  */
 export async function updateApplicationStatus(applicationId, status) {
-  const validStatuses = ["pending", "accepted", "rejected"];
+  const validStatuses = ["pending", "accepted", "rejected", "completed"];
 
   if (!validStatuses.includes(status)) {
     throw new Error(`Invalid status. Must be one of: ${validStatuses.join(", ")}`);
@@ -244,7 +244,10 @@ export async function updateApplicationStatus(applicationId, status) {
   try {
     const result = await sql`
       UPDATE job_applications
-      SET status = ${status}, updated_at = NOW()
+      SET
+        status = ${status},
+        completed_at = CASE WHEN ${status} = 'completed' THEN NOW() ELSE completed_at END,
+        updated_at = NOW()
       WHERE id = ${applicationId}
       RETURNING *;
     `;
@@ -470,6 +473,7 @@ export async function getApplicationsForClient(clerkId) {
             pending: 0,
             accepted: 0,
             rejected: 0,
+            completed: 0,
           },
         });
       }

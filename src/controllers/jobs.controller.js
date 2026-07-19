@@ -355,6 +355,7 @@ export async function createJobController(req, res) {
         selectedServices: normalizedSelectedServices,
         jobLocation: newJob.location || normalizedLocation,
         radiusKm: normalizedLocation.radiusKm,
+        excludeClerkId: clerkId,
       });
       nearbyFreelancerCount = matchedUsers.length;
 

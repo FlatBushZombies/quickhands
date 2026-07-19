@@ -1,7 +1,7 @@
 import { pgTable, serial, integer, varchar, timestamp, text, pgEnum } from "drizzle-orm/pg-core";
 import { serviceRequest } from "./job.model.js";
 
-export const applicationStatusEnum = pgEnum("application_status", ["pending", "accepted", "rejected"]);
+export const applicationStatusEnum = pgEnum("application_status", ["pending", "accepted", "rejected", "completed"]);
 
 export const jobApplications = pgTable("job_applications", {
   id: serial("id").primaryKey(),
@@ -29,6 +29,10 @@ export const jobApplications = pgTable("job_applications", {
   // Set when the client was last notified that this freelancer is near
   // the job site; cleared once they move away so re-approach re-notifies.
   proximity_notified_at: timestamp("proximity_notified_at"),
+
+  // Set when the client marks the accepted job as finished — distinct from
+  // "accepted" so reviews/analytics can tell in-progress work from done work.
+  completed_at: timestamp("completed_at"),
 
   // Timestamps
   created_at: timestamp("created_at").defaultNow().notNull(),

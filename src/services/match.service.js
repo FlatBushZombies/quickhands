@@ -36,7 +36,7 @@ function boundingBoxForRadius(origin, radiusKm) {
   };
 }
 
-export async function findUsersMatchingJob({ serviceType, selectedServices, jobLocation, radiusKm }) {
+export async function findUsersMatchingJob({ serviceType, selectedServices, jobLocation, radiusKm, excludeClerkId }) {
   try {
     const baseTerms = [];
     if (serviceType) baseTerms.push(serviceType);
@@ -58,6 +58,8 @@ export async function findUsersMatchingJob({ serviceType, selectedServices, jobL
         SELECT id, clerk_id, skills, metadata
         FROM users
         WHERE clerk_id IS NOT NULL
+          AND clerk_id IS DISTINCT FROM ${excludeClerkId || null}
+          AND metadata->>'appRole' IS DISTINCT FROM 'client'
           AND metadata->'location'->>'latitude' ~ '^-?[0-9]+\.?[0-9]*$'
           AND metadata->'location'->>'longitude' ~ '^-?[0-9]+\.?[0-9]*$'
           AND (metadata->'location'->>'latitude')::numeric BETWEEN ${minLat} AND ${maxLat}
@@ -70,6 +72,8 @@ export async function findUsersMatchingJob({ serviceType, selectedServices, jobL
         SELECT id, clerk_id, skills, metadata
         FROM users
         WHERE clerk_id IS NOT NULL
+          AND clerk_id IS DISTINCT FROM ${excludeClerkId || null}
+          AND metadata->>'appRole' IS DISTINCT FROM 'client'
           AND skills ILIKE ANY(${likeTerms})
         LIMIT ${MATCH_QUERY_ROW_LIMIT};
       `;
@@ -78,6 +82,8 @@ export async function findUsersMatchingJob({ serviceType, selectedServices, jobL
         SELECT id, clerk_id, skills, metadata
         FROM users
         WHERE clerk_id IS NOT NULL
+          AND clerk_id IS DISTINCT FROM ${excludeClerkId || null}
+          AND metadata->>'appRole' IS DISTINCT FROM 'client'
         LIMIT ${MATCH_QUERY_ROW_LIMIT};
       `;
     }

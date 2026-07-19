@@ -32,6 +32,8 @@ const APPLICATION_STATUS_ALIASES = {
   rejected: "rejected",
   decline: "rejected",
   declined: "rejected",
+  complete: "completed",
+  completed: "completed",
 };
 
 function trimOptionalString(value) {
@@ -127,6 +129,10 @@ function buildApplicationNotificationTitle(status, job) {
 
   if (status === "rejected") {
     return `Your application for "${job.serviceType}" was rejected.`;
+  }
+
+  if (status === "completed") {
+    return `"${job.serviceType}" was marked complete. Leave a review for the client!`;
   }
 
   return `Your application for "${job.serviceType}" was updated.`;
@@ -379,7 +385,7 @@ export async function updateApplicationStatusController(req, res) {
     if (!normalizedStatus) {
       return res.status(400).json({
         success: false,
-        message: "Status must be one of: pending, accept, accepted, reject, rejected",
+        message: "Status must be one of: pending, accept, accepted, reject, rejected, complete, completed",
       });
     }
 
@@ -400,6 +406,13 @@ export async function updateApplicationStatusController(req, res) {
       });
     }
 
+    if (normalizedStatus === "completed" && application.status !== "accepted") {
+      return res.status(400).json({
+        success: false,
+        message: "Only an accepted application can be marked complete",
+      });
+    }
+
     await updateApplicationStatus(applicationId, normalizedStatus);
     let contactSharedNow = false;
 
@@ -413,6 +426,7 @@ export async function updateApplicationStatusController(req, res) {
       contactSharedNow = true;
     } else if (
       normalizedStatus !== "accepted" &&
+      normalizedStatus !== "completed" &&
       application.contactExchange?.readyForDirectContact
     ) {
       await clearApplicationClientContact(applicationId);
@@ -436,7 +450,9 @@ export async function updateApplicationStatusController(req, res) {
               ? "application_accepted"
               : normalizedStatus === "rejected"
                 ? "application_rejected"
-                : "application_status",
+                : normalizedStatus === "completed"
+                  ? "application_completed"
+                  : "application_status",
           conversationId: conversationIdForJobClerkPair(
             updatedApplication.jobId,
             updatedApplication.freelancerClerkId,
@@ -579,6 +595,15 @@ export async function rejectApplicationController(req, res) {
   req.body = {
     ...(req.body || {}),
     status: "rejected",
+  };
+
+  return updateApplicationStatusController(req, res);
+}
+
+export async function completeApplicationController(req, res) {
+  req.body = {
+    ...(req.body || {}),
+    status: "completed",
   };
 
   return updateApplicationStatusController(req, res);
@@ -732,12 +757,14 @@ export async function getApplicationReviewsController(req, res) {
       freelancerClerkId: application.freelancerClerkId,
     });
 
+    const canReview = application.status === "accepted" || application.status === "completed";
+
     return res.status(200).json({
       success: true,
       data: {
         ...reviewMatrix,
-        canClientReview: application.status === "accepted",
-        canFreelancerReview: application.status === "accepted",
+        canClientReview: canReview,
+        canFreelancerReview: canReview,
       },
     });
   } catch (error) {
@@ -770,7 +797,7 @@ export async function submitApplicationReviewController(req, res) {
       });
     }
 
-    if (application.status !== "accepted") {
+    if (application.status !== "accepted" && application.status !== "completed") {
       return res.status(400).json({
         success: false,
         message: "Reviews can only be shared after an application is accepted",

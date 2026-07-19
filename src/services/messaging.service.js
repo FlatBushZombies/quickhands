@@ -34,6 +34,50 @@ function mapParticipant(row, prefix) {
   };
 }
 
+/**
+ * Conversations only persist clerkId+displayName for each participant, so
+ * avatars have to be looked up separately from the users table. Batches all
+ * distinct participant clerkIds across a list of conversations into one
+ * query rather than N+1-ing per conversation. Falls back to leaving
+ * imageUrl unset (frontend renders initials) if a user row/image is missing.
+ */
+async function attachParticipantAvatars(conversations) {
+  const clerkIds = new Set();
+  for (const conversation of conversations) {
+    for (const participant of conversation.participants) {
+      if (participant?.clerkId) clerkIds.add(participant.clerkId);
+    }
+  }
+
+  if (clerkIds.size === 0) {
+    return conversations;
+  }
+
+  const rows = await sql`
+    SELECT clerk_id, image_url, metadata
+    FROM users
+    WHERE clerk_id = ANY(${Array.from(clerkIds)});
+  `;
+
+  const imageByClerkId = new Map(
+    rows.map((row) => [
+      row.clerk_id,
+      row.image_url || row.metadata?.profile?.imageUrl || null,
+    ])
+  );
+
+  const applyAvatar = (participant) =>
+    participant
+      ? { ...participant, imageUrl: imageByClerkId.get(participant.clerkId) || null }
+      : participant;
+
+  return conversations.map((conversation) => ({
+    ...conversation,
+    participants: conversation.participants.map(applyAvatar),
+    otherUser: applyAvatar(conversation.otherUser),
+  }));
+}
+
 function mapConversation(row, currentClerkId = null) {
   const participantOne = mapParticipant(row, "participant_one");
   const participantTwo = mapParticipant(row, "participant_two");
@@ -98,7 +142,8 @@ async function getExistingConversationByIdForUser(conversationId, clerkId) {
     return null;
   }
 
-  return mapConversation(result[0], clerkId);
+  const [enriched] = await attachParticipantAvatars([mapConversation(result[0], clerkId)]);
+  return enriched;
 }
 
 function resolveConversationId({
@@ -367,7 +412,7 @@ export async function listConversationsForUser(clerkId, opts = {}) {
       LIMIT ${limit};
     `;
 
-    return result.map((row) => mapConversation(row, clerkId));
+    return attachParticipantAvatars(result.map((row) => mapConversation(row, clerkId)));
   } catch (error) {
     logger.error(`listConversationsForUser error for ${clerkId}:`, error);
     throw new Error("Failed to list conversations");

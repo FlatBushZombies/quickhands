@@ -41,8 +41,10 @@ const PUSH_TITLES_BY_TYPE = {
   new_application: "New application",
   application_accepted: "Offer accepted",
   application_rejected: "Offer rejected",
+  application_completed: "Job marked complete",
   contact_shared: "Contact shared",
   proximity: "Freelancer nearby",
+  freelancer_match: "New specialist available",
 };
 
 function buildPushTitle(message, type) {

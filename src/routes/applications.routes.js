@@ -8,6 +8,7 @@ import {
   shareApplicationContactController,
   acceptApplicationController,
   rejectApplicationController,
+  completeApplicationController,
   submitApplicationReviewController,
   updateClientApplicationMetaController,
 } from "#controllers/application.controller.js";
@@ -27,6 +28,8 @@ router.patch("/:id/accept", requireAuth, acceptApplicationController);
 router.post("/:id/accept", requireAuth, acceptApplicationController);
 router.patch("/:id/reject", requireAuth, rejectApplicationController);
 router.post("/:id/reject", requireAuth, rejectApplicationController);
+router.patch("/:id/complete", requireAuth, completeApplicationController);
+router.post("/:id/complete", requireAuth, completeApplicationController);
 router.patch("/:id/contact", requireAuth, shareApplicationContactController);
 router.post("/:id/contact", requireAuth, shareApplicationContactController);
 router.patch("/:id/client-meta", requireAuth, updateClientApplicationMetaController);

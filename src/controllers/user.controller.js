@@ -1,13 +1,22 @@
 import logger from '#config/logger.js';
 import {
+  addFavoriteFreelancer,
+  addSavedSearch,
+  findClientsMatchingFreelancer,
   getClerkIdByDeviceLocationToken,
+  getClientAnalytics,
   getOrCreateDeviceLocationToken,
   getUserByClerkId,
+  listFavoriteFreelancers,
+  listSavedSearches,
   registerPushTokenByClerkId,
+  removeFavoriteFreelancer,
+  removeSavedSearch,
   unregisterPushTokenByClerkId,
   updateUserLocationByClerkId,
   upsertUser,
 } from '#services/user.service.js';
+import { notifyUser } from '#services/notifications.service.js';
 import {
   deleteJobTemplate,
   listJobTemplates,
@@ -100,6 +109,31 @@ export const getUserProfileByQuery = async (req, res) => {
   return getUserProfileByClerkId(req, res);
 };
 
+/**
+ * Notifies clients whose saved search matches a freelancer who just
+ * finished onboarding — the reverse of the job_match notification
+ * freelancers already get. Fire-and-forget; failures are logged, never
+ * block the onboarding response.
+ */
+async function notifyMatchingClientsAboutNewFreelancer({ clerkId, skills, hourlyRate }) {
+  try {
+    const matchedClerkIds = await findClientsMatchingFreelancer({ skills, hourlyRate });
+    await Promise.all(
+      matchedClerkIds.map((clientClerkId) =>
+        notifyUser({
+          clerkId: clientClerkId,
+          message: `A new specialist matching your saved search (${skills}) just joined.`,
+          type: 'freelancer_match',
+        }).catch((notifyError) => {
+          logger.error('Error notifying client about matching freelancer', notifyError);
+        })
+      )
+    );
+  } catch (error) {
+    logger.error(`notifyMatchingClientsAboutNewFreelancer failed for clerk_id=${clerkId}:`, error);
+  }
+}
+
 export const updateUserOnboarding = async (req, res) => {
   const { clerkId, name, email, imageUrl, skills, experienceLevel, hourlyRate, completedOnboarding } = req.body || {};
 
@@ -111,6 +145,9 @@ export const updateUserOnboarding = async (req, res) => {
 
     logger.info(`Updating user onboarding for clerk_id=${clerkId}`);
 
+    const existingUser = await getUserByClerkId(clerkId).catch(() => null);
+    const wasOnboarded = existingUser?.completedOnboarding === true;
+
     const user = await upsertUser({
       clerkId,
       name,
@@ -121,6 +158,13 @@ export const updateUserOnboarding = async (req, res) => {
       hourlyRate,
       completedOnboarding: completedOnboarding ?? true,
     });
+
+    // Only fire on the transition into "onboarded", not on every later
+    // profile edit — otherwise a freelancer tweaking their bio would
+    // re-notify every client with a matching saved search each time.
+    if (!wasOnboarded && user?.completedOnboarding === true && skills) {
+      void notifyMatchingClientsAboutNewFreelancer({ clerkId, skills, hourlyRate });
+    }
 
     logger.info(`User onboarding updated successfully for clerk_id=${clerkId}`);
     return res.status(200).json({ success: true, user });
@@ -216,8 +260,8 @@ export const registerMyPushToken = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Authentication required' });
     }
 
-    const { token, platform } = req.body || {};
-    await registerPushTokenByClerkId(req.user.clerkId, token, platform);
+    const { token, platform, appRole } = req.body || {};
+    await registerPushTokenByClerkId(req.user.clerkId, token, platform, appRole);
 
     return res.status(200).json({
       success: true,
@@ -320,5 +364,110 @@ export const getUserReviews = async (req, res) => {
   } catch (error) {
     logger.error(`Failed to fetch reviews for clerk_id=${clerkId}:`, error);
     return res.status(500).json({ success: false, message: 'Failed to fetch reviews' });
+  }
+};
+
+// ─── Favorites ───────────────────────────────────────────────────────────
+
+export const getMyFavoriteFreelancers = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const favorites = await listFavoriteFreelancers(req.user.clerkId);
+    return res.status(200).json({ success: true, favorites });
+  } catch (error) {
+    logger.error(`Failed to list favorites for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch favorites' });
+  }
+};
+
+export const addMyFavoriteFreelancer = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    await addFavoriteFreelancer(req.user.clerkId, req.params.freelancerClerkId);
+    return res.status(200).json({ success: true, added: true });
+  } catch (error) {
+    logger.error(`Failed to add favorite for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(400).json({ success: false, message: error.message || 'Failed to add favorite' });
+  }
+};
+
+export const removeMyFavoriteFreelancer = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    await removeFavoriteFreelancer(req.user.clerkId, req.params.freelancerClerkId);
+    return res.status(200).json({ success: true, removed: true });
+  } catch (error) {
+    logger.error(`Failed to remove favorite for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(400).json({ success: false, message: error.message || 'Failed to remove favorite' });
+  }
+};
+
+// ─── Saved search alerts ─────────────────────────────────────────────────
+
+export const getMySavedSearches = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const savedSearches = await listSavedSearches(req.user.clerkId);
+    return res.status(200).json({ success: true, savedSearches });
+  } catch (error) {
+    logger.error(`Failed to list saved searches for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch saved searches' });
+  }
+};
+
+export const addMySavedSearch = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const { category, minBudget, maxBudget } = req.body || {};
+    const savedSearch = await addSavedSearch(req.user.clerkId, { category, minBudget, maxBudget });
+    return res.status(201).json({ success: true, savedSearch });
+  } catch (error) {
+    logger.error(`Failed to add saved search for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(400).json({ success: false, message: error.message || 'Failed to add saved search' });
+  }
+};
+
+export const removeMySavedSearch = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    await removeSavedSearch(req.user.clerkId, req.params.savedSearchId);
+    return res.status(200).json({ success: true, removed: true });
+  } catch (error) {
+    logger.error(`Failed to remove saved search for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(400).json({ success: false, message: error.message || 'Failed to remove saved search' });
+  }
+};
+
+// ─── Client analytics ────────────────────────────────────────────────────
+
+export const getMyClientAnalytics = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const analytics = await getClientAnalytics(req.user.clerkId);
+    return res.status(200).json({ success: true, analytics });
+  } catch (error) {
+    logger.error(`Failed to compute analytics for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(500).json({ success: false, message: 'Failed to compute analytics' });
   }
 };

@@ -498,12 +498,14 @@ export async function listPushTokensByClerkId(clerkId) {
   return getStoredPushTokens(metadata);
 }
 
-export async function registerPushTokenByClerkId(clerkId, pushToken, platform) {
+export async function registerPushTokenByClerkId(clerkId, pushToken, platform, appRole) {
   const normalizedToken = normalizePushToken(pushToken);
 
   if (!normalizedToken) {
     throw new Error("A valid Expo push token is required");
   }
+
+  const normalizedAppRole = asTrimmedString(appRole);
 
   return patchUserMetadataByClerkId(clerkId, (metadata) => {
     const notifications = asObject(metadata.notifications);
@@ -513,6 +515,11 @@ export async function registerPushTokenByClerkId(clerkId, pushToken, platform) {
 
     return {
       ...metadata,
+      // Tags which app this profile belongs to (freelance-app vs
+      // client-app share the same users table) so job-match notifications
+      // can be scoped to freelancers only. Set on every push-token
+      // registration, which runs on every signed-in app open.
+      ...(normalizedAppRole ? { appRole: normalizedAppRole } : {}),
       notifications: {
         ...notifications,
         pushTokens: [
@@ -677,4 +684,233 @@ export async function getReviewSummariesByClerkIds(clerkIds) {
 export async function getReviewSummaryByClerkId(clerkId) {
   const row = await getUserRowByClerkId(clerkId);
   return row ? buildReviewSummaryFromMetadata(row.metadata) : buildReviewSummaryFromMetadata({});
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function asArrayOfStrings(value) {
+  return asArray(value).filter((entry) => typeof entry === "string" && entry);
+}
+
+// ─── Favorites (clients saving freelancers to rehire later) ────────────────
+// Stored on the CLIENT's own metadata as a list of freelancer clerkIds —
+// same schema-light approach as reviews/push tokens, no migration needed.
+
+export async function addFavoriteFreelancer(clientClerkId, freelancerClerkId) {
+  const normalized = asTrimmedString(freelancerClerkId);
+  if (!normalized) {
+    throw new Error("freelancerClerkId is required");
+  }
+  if (normalized === clientClerkId) {
+    throw new Error("Cannot favorite yourself");
+  }
+
+  return patchUserMetadataByClerkId(clientClerkId, (metadata) => {
+    const existing = asArrayOfStrings(metadata.favoriteFreelancerIds);
+    if (existing.includes(normalized)) {
+      return metadata;
+    }
+
+    return {
+      ...metadata,
+      favoriteFreelancerIds: [normalized, ...existing].slice(0, 200),
+    };
+  });
+}
+
+export async function removeFavoriteFreelancer(clientClerkId, freelancerClerkId) {
+  const normalized = asTrimmedString(freelancerClerkId);
+
+  return patchUserMetadataByClerkId(clientClerkId, (metadata) => ({
+    ...metadata,
+    favoriteFreelancerIds: asArrayOfStrings(metadata.favoriteFreelancerIds).filter(
+      (id) => id !== normalized
+    ),
+  }));
+}
+
+export async function listFavoriteFreelancers(clientClerkId) {
+  const metadata = await getUserMetadataByClerkId(clientClerkId);
+  const ids = asArrayOfStrings(metadata.favoriteFreelancerIds);
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const rows = await getUsersByClerkIds(ids);
+  const byId = new Map(rows.map((row) => [row.clerk_id, mapChatUserRow(row)]));
+
+  // Preserve favorited order (most-recently-added first); silently drop
+  // any freelancer whose account no longer exists.
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
+// ─── Saved search alerts (clients get notified when a matching freelancer
+// completes onboarding) ──────────────────────────────────────────────────
+
+function normalizeSavedSearch(input) {
+  const category = asTrimmedString(input?.category);
+  if (!category) {
+    throw new Error("category is required");
+  }
+
+  const minBudget = toNullableNumber(input?.minBudget);
+  const maxBudget = toNullableNumber(input?.maxBudget);
+
+  return {
+    id: asTrimmedString(input?.id) || randomUUID(),
+    category,
+    minBudget,
+    maxBudget,
+    createdAt: input?.createdAt || new Date().toISOString(),
+  };
+}
+
+export async function addSavedSearch(clientClerkId, input) {
+  const nextSearch = normalizeSavedSearch(input);
+
+  await patchUserMetadataByClerkId(clientClerkId, (metadata) => ({
+    ...metadata,
+    savedSearches: [nextSearch, ...asArray(metadata.savedSearches).slice(0, 19)],
+  }));
+
+  return nextSearch;
+}
+
+export async function removeSavedSearch(clientClerkId, savedSearchId) {
+  return patchUserMetadataByClerkId(clientClerkId, (metadata) => ({
+    ...metadata,
+    savedSearches: asArray(metadata.savedSearches).filter(
+      (entry) => entry?.id !== savedSearchId
+    ),
+  }));
+}
+
+export async function listSavedSearches(clientClerkId) {
+  const metadata = await getUserMetadataByClerkId(clientClerkId);
+  return asArray(metadata.savedSearches);
+}
+
+/**
+ * Finds every client whose saved search matches a freelancer who just
+ * became available (completed onboarding), and returns the clerkIds to
+ * notify. Mirrors findUsersMatchingJob's approach but in the other
+ * direction — freelancer-to-client instead of job-to-freelancer.
+ */
+export async function findClientsMatchingFreelancer({ skills, hourlyRate }) {
+  const normalizedSkills = asTrimmedString(skills).toLowerCase();
+  const normalizedRate = toNullableNumber(hourlyRate);
+
+  const rows = await sql.query(
+    `
+      SELECT clerk_id, metadata
+      FROM users
+      WHERE metadata->>'appRole' = 'client'
+        AND jsonb_array_length(COALESCE(metadata->'savedSearches', '[]'::jsonb)) > 0;
+    `
+  );
+
+  const matchedClerkIds = [];
+
+  for (const row of rows) {
+    const savedSearches = asArray(row.metadata?.savedSearches);
+    const hasMatch = savedSearches.some((search) => {
+      const category = asTrimmedString(search?.category).toLowerCase();
+      if (!category || !normalizedSkills.includes(category)) {
+        return false;
+      }
+
+      const min = toNullableNumber(search?.minBudget);
+      const max = toNullableNumber(search?.maxBudget);
+      if (normalizedRate === null) {
+        return true;
+      }
+      if (min !== null && normalizedRate < min) {
+        return false;
+      }
+      if (max !== null && normalizedRate > max) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (hasMatch) {
+      matchedClerkIds.push(row.clerk_id);
+    }
+  }
+
+  return matchedClerkIds;
+}
+
+// ─── Client analytics ────────────────────────────────────────────────────
+
+// Quotations are free text (e.g. "150/hour", "2,500 total") since there's
+// no payment processing to source a real number from — this is a
+// best-effort estimate, pulling the first numeric run out of the string.
+function parseQuotationAmount(quotation) {
+  if (typeof quotation !== "string") {
+    return null;
+  }
+  const match = quotation.replace(/,/g, "").match(/\d+(\.\d+)?/);
+  return match ? Number(match[0]) : null;
+}
+
+export async function getClientAnalytics(clientClerkId) {
+  const [jobsResult, acceptedQuotationsResult, responseTimeResult] = await Promise.all([
+    sql.query(
+      `SELECT COUNT(*) AS total FROM service_request WHERE clerk_id = $1;`,
+      [clientClerkId]
+    ),
+    sql.query(
+      `
+        SELECT a.quotation, a.status
+        FROM job_applications a
+        JOIN service_request sr ON sr.id = a.job_id
+        WHERE sr.clerk_id = $1
+          AND a.status IN ('accepted', 'completed');
+      `,
+      [clientClerkId]
+    ),
+    sql.query(
+      `
+        SELECT AVG(EXTRACT(EPOCH FROM (first_app.first_created_at - sr.created_at))) AS avg_seconds
+        FROM service_request sr
+        JOIN LATERAL (
+          SELECT MIN(a.created_at) AS first_created_at
+          FROM job_applications a
+          WHERE a.job_id = sr.id
+        ) first_app ON first_app.first_created_at IS NOT NULL
+        WHERE sr.clerk_id = $1;
+      `,
+      [clientClerkId]
+    ),
+  ]);
+
+  const totalJobsPosted = Number(jobsResult[0]?.total) || 0;
+
+  let totalCommittedSpend = 0;
+  let completedJobsCount = 0;
+  for (const row of acceptedQuotationsResult) {
+    const amount = parseQuotationAmount(row.quotation);
+    if (amount !== null) {
+      totalCommittedSpend += amount;
+    }
+    if (row.status === "completed") {
+      completedJobsCount += 1;
+    }
+  }
+
+  const avgSeconds = Number(responseTimeResult[0]?.avg_seconds);
+  const averageResponseTimeHours = Number.isFinite(avgSeconds) && avgSeconds > 0
+    ? Math.round((avgSeconds / 3600) * 10) / 10
+    : null;
+
+  return {
+    totalJobsPosted,
+    completedJobsCount,
+    totalCommittedSpend: Math.round(totalCommittedSpend * 100) / 100,
+    averageResponseTimeHours,
+  };
 }
