@@ -7,7 +7,6 @@ import {
   getAllApplications,
   getApplicationsForClient,
   getApplicationById,
-  updateApplicationClientContact,
   clearApplicationClientContact,
 } from "#services/application.service.js";
 import { saveClientApplicationPreference } from "#services/applicationPreferences.service.js";
@@ -375,11 +374,6 @@ export async function updateApplicationStatusController(req, res) {
     const { id: applicationId } = req.params;
     const { status } = req.body || {};
     const normalizedStatus = normalizeApplicationStatus(status);
-    const {
-      phoneNumber: resolvedPhoneNumber,
-      contactName,
-      contactInstructions,
-    } = resolveApplicationContactPayload(req.body);
     const { user } = req;
 
     if (!normalizedStatus) {
@@ -414,18 +408,11 @@ export async function updateApplicationStatusController(req, res) {
     }
 
     await updateApplicationStatus(applicationId, normalizedStatus);
-    let contactSharedNow = false;
 
-    if (normalizedStatus === "accepted" && resolvedPhoneNumber) {
-      await updateApplicationClientContact(applicationId, {
-        phoneNumber: resolvedPhoneNumber,
-        contactName,
-        contactInstructions,
-        sharedByClerkId: user?.clerkId || null,
-      });
-      contactSharedNow = true;
-    } else if (
-      normalizedStatus !== "accepted" &&
+    // Direct contact exchange is disabled by policy (see
+    // shareApplicationContactController) — coordination stays in-app so the
+    // success fee can't be dodged. Clears any legacy shared contact data.
+    if (
       normalizedStatus !== "completed" &&
       application.contactExchange?.readyForDirectContact
     ) {
@@ -442,9 +429,7 @@ export async function updateApplicationStatusController(req, res) {
         await notifyUser({
           clerkId: updatedApplication.freelancerClerkId,
           jobId: updatedApplication.jobId,
-          message: contactSharedNow
-            ? `${buildApplicationNotificationTitle(normalizedStatus, job)} Contact details were also shared for follow-up.`
-            : buildApplicationNotificationTitle(normalizedStatus, job),
+          message: buildApplicationNotificationTitle(normalizedStatus, job),
           type:
             normalizedStatus === "accepted"
               ? "application_accepted"
@@ -468,17 +453,6 @@ export async function updateApplicationStatusController(req, res) {
       success: true,
       message: "Application status updated successfully",
       data: updatedApplication,
-      ...(normalizedStatus === "accepted" &&
-      updatedApplication &&
-      !updatedApplication.contactExchange.readyForDirectContact
-        ? {
-            nextStep: {
-              action: "share_client_phone_number",
-              applicationId: updatedApplication.id,
-              endpoint: `/api/applications/${updatedApplication.id}/contact`,
-            },
-          }
-        : {}),
     });
   } catch (error) {
     logger.error("Error updating application status:", error);
@@ -499,87 +473,14 @@ export async function updateApplicationStatusController(req, res) {
  * PATCH /api/applications/:id/contact
  */
 export async function shareApplicationContactController(req, res) {
-  try {
-    const { id: applicationId } = req.params;
-    const {
-      phoneNumber,
-      contactName,
-      contactInstructions,
-    } = resolveApplicationContactPayload(req.body);
-    const { user } = req;
-
-    if (!phoneNumber) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone number is required",
-      });
-    }
-
-    const application = await getApplicationById(applicationId, { viewerRole: "admin" });
-
-    if (!application) {
-      return res.status(404).json({
-        success: false,
-        message: "Application not found",
-      });
-    }
-
-    const job = await resolveApplicationJobContext(application);
-    if (user?.clerkId !== job.clerkId) {
-      return res.status(403).json({
-        success: false,
-        message: "You do not have permission to share contact details for this application",
-      });
-    }
-
-    if (application.status !== "accepted") {
-      return res.status(400).json({
-        success: false,
-        message: "Contact details can only be shared after the application is accepted",
-      });
-    }
-
-    await updateApplicationClientContact(applicationId, {
-      phoneNumber,
-      contactName,
-      contactInstructions,
-      sharedByClerkId: user?.clerkId || null,
-    });
-    const updatedApplication = await getApplicationById(applicationId, {
-      viewerRole: "client",
-      viewerClerkId: user?.clerkId || null,
-    });
-
-    if (updatedApplication?.freelancerClerkId) {
-      try {
-        await notifyUser({
-          clerkId: updatedApplication.freelancerClerkId,
-          jobId: updatedApplication.jobId,
-          message: `Contact details were shared for "${job.serviceType}". You can now follow up directly.`,
-          type: "contact_shared",
-          conversationId: conversationIdForJobClerkPair(
-            updatedApplication.jobId,
-            updatedApplication.freelancerClerkId,
-            user?.clerkId || job.clerkId
-          ),
-        });
-      } catch (notificationError) {
-        logger.error("Error notifying freelancer about contact handoff:", notificationError);
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Client contact details shared successfully",
-      data: updatedApplication,
-    });
-  } catch (error) {
-    logger.error("Error sharing application contact details:", error);
-    return res.status(400).json({
-      success: false,
-      message: error.message || "Failed to share contact details",
-    });
-  }
+  // Direct contact exchange is disabled by policy: clients and freelancers
+  // must coordinate through the in-app messaging board, which the platform
+  // can track, so the success fee can't be dodged by moving off-platform.
+  return res.status(403).json({
+    success: false,
+    message:
+      "Direct contact sharing is disabled. Please coordinate through the messages on this application's coordination board.",
+  });
 }
 
 export async function acceptApplicationController(req, res) {
