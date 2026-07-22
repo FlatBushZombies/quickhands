@@ -351,9 +351,10 @@ export async function createJobController(req, res) {
     logger.info(`Created new service request: ${newJob.id} by user: ${clerkId} (${userName})`);
 
     let nearbyFreelancerCount = 0;
+    let matchedUsers = [];
 
     try {
-      const matchedUsers = await findUsersMatchingJob({
+      matchedUsers = await findUsersMatchingJob({
         serviceType,
         selectedServices: normalizedSelectedServices,
         jobLocation: newJob.location || normalizedLocation,
@@ -361,8 +362,18 @@ export async function createJobController(req, res) {
         excludeClerkId: clerkId,
       });
       nearbyFreelancerCount = matchedUsers.length;
+    } catch (matchErr) {
+      logger.error("Error calculating nearby freelancer matches for new job", matchErr);
+    }
 
-      await Promise.all(
+    // Notification fan-out (a DB write + an Expo push HTTP call per matched
+    // freelancer) is deliberately NOT awaited — with many nearby matches this
+    // could take several seconds and was making job posting feel hung. The
+    // job is already created and the matched count above is already known,
+    // so the response goes out immediately and delivery continues in the
+    // background on this persistent server process.
+    if (matchedUsers.length > 0) {
+      Promise.all(
         matchedUsers.map((matchedUser) =>
           notifyUser({
             clerkId: matchedUser.clerkId,
@@ -373,9 +384,9 @@ export async function createJobController(req, res) {
             logger.error("Error notifying matched freelancer", notificationError);
           })
         )
-      );
-    } catch (notifyErr) {
-      logger.error("Error calculating nearby freelancer matches for new job", notifyErr);
+      ).catch((batchError) => {
+        logger.error("Error sending job_match notifications", batchError);
+      });
     }
 
     return res.status(201).json({
