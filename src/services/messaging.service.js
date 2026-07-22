@@ -54,16 +54,13 @@ async function attachParticipantAvatars(conversations) {
   }
 
   const rows = await sql`
-    SELECT clerk_id, image_url, metadata
+    SELECT clerk_id, metadata
     FROM users
     WHERE clerk_id = ANY(${Array.from(clerkIds)});
   `;
 
   const imageByClerkId = new Map(
-    rows.map((row) => [
-      row.clerk_id,
-      row.image_url || row.metadata?.profile?.imageUrl || null,
-    ])
+    rows.map((row) => [row.clerk_id, row.metadata?.profile?.imageUrl || null])
   );
 
   const applyAvatar = (participant) =>

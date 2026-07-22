@@ -1,8 +1,13 @@
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
 import { getClientApplicationPreferences } from "#services/applicationPreferences.service.js";
-import { getReviewSummariesByClerkIds } from "#services/user.service.js";
+import { getReviewSummariesByClerkIds, getUsersByClerkIds } from "#services/user.service.js";
 import { conversationIdForJobClerkPair } from "#utils/conversationId.js";
+import {
+  calculateDistanceKm,
+  normalizeLocationPayload,
+  roundDistanceKm,
+} from "#utils/location.js";
 import {
   isMissingApplicationContactColumnError,
   normalizePhoneNumber,
@@ -64,6 +69,7 @@ function buildApplicationContext(app, viewerRole, extras = {}) {
     freelancerReviewSummary:
       extras.freelancerReviewSummary || emptyReviewSummary(),
     clientReviewSummary: extras.clientReviewSummary || emptyReviewSummary(),
+    distanceKm: extras.distanceKm ?? null,
   };
 }
 
@@ -189,6 +195,32 @@ export async function getApplicationCountByJobId(jobId) {
     return Number.parseInt(result[0]?.total, 10) || 0;
   } catch (error) {
     logger.error(`Error counting applications for job ${jobId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Batch application counts for a list of job ids — used to annotate the
+ * freelancer-facing job feed with "N specialists have applied" competition
+ * context without an N+1 query per card.
+ */
+export async function getApplicationCountsByJobIds(jobIds) {
+  const uniqueIds = Array.from(new Set((jobIds || []).filter((id) => id !== null && id !== undefined)));
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  try {
+    const result = await sql`
+      SELECT job_id, COUNT(*) AS total
+      FROM job_applications
+      WHERE job_id = ANY(${uniqueIds})
+      GROUP BY job_id;
+    `;
+
+    return new Map(result.map((row) => [String(row.job_id), Number.parseInt(row.total, 10) || 0]));
+  } catch (error) {
+    logger.error("Error counting applications for job batch:", error);
     throw error;
   }
 }
@@ -443,7 +475,11 @@ export async function getApplicationsForClient(clerkId) {
         sr.end_date as job_end_date,
         sr.clerk_id as job_client_clerk_id,
         sr.user_name as job_client_name,
-        sr.created_at as job_created_at
+        sr.created_at as job_created_at,
+        sr.location_label as job_location_label,
+        sr.location_city as job_location_city,
+        sr.location_latitude as job_location_latitude,
+        sr.location_longitude as job_location_longitude
       FROM job_applications a
       JOIN service_request sr ON a.job_id = sr.id
       WHERE sr.clerk_id = ${clerkId}
@@ -451,10 +487,19 @@ export async function getApplicationsForClient(clerkId) {
     `;
 
     logger.info(`Retrieved ${result.length} applications for client ${clerkId}`);
-    const [reviewSummaries, clientPreferences] = await Promise.all([
+    const freelancerClerkIds = [...new Set(result.map((app) => app.freelancer_clerk_id).filter(Boolean))];
+    const [reviewSummaries, clientPreferences, freelancerRows] = await Promise.all([
       buildReviewSummaryMap(result),
       getClientApplicationPreferences(clerkId),
+      getUsersByClerkIds(freelancerClerkIds),
     ]);
+
+    const freelancerLocationByClerkId = new Map(
+      freelancerRows.map((row) => [
+        row.clerk_id,
+        normalizeLocationPayload(row.metadata?.location || {}),
+      ])
+    );
 
     const jobsMap = new Map();
     result.forEach((app) => {
@@ -475,10 +520,21 @@ export async function getApplicationsForClient(clerkId) {
             rejected: 0,
             completed: 0,
           },
+          jobLocation: normalizeLocationPayload({
+            label: app.job_location_label,
+            city: app.job_location_city,
+            latitude: app.job_location_latitude,
+            longitude: app.job_location_longitude,
+          }),
         });
       }
 
       const jobEntry = jobsMap.get(jobId);
+      const freelancerLocation = freelancerLocationByClerkId.get(app.freelancer_clerk_id);
+      const distanceKm = roundDistanceKm(
+        calculateDistanceKm(jobEntry.jobLocation, freelancerLocation)
+      );
+
       jobEntry.applications.push(
         buildApplicationContext(app, "client", {
           clientDecision: clientPreferences[String(app.id)] || {
@@ -490,6 +546,7 @@ export async function getApplicationsForClient(clerkId) {
             reviewSummaries.get(app.freelancer_clerk_id) || emptyReviewSummary(),
           clientReviewSummary:
             reviewSummaries.get(app.job_client_clerk_id) || emptyReviewSummary(),
+          distanceKm,
         })
       );
 
@@ -498,6 +555,35 @@ export async function getApplicationsForClient(clerkId) {
         jobEntry.applicationSummary[app.status] += 1;
       }
     });
+
+    // Aggregate decision-support stats per job (nearby count, avg rating, avg
+    // quote vs budget) so the client sees a summary before reading every
+    // application individually.
+    for (const jobEntry of jobsMap.values()) {
+      const apps = jobEntry.applications;
+      const nearbyCount = apps.filter(
+        (app) => app.distanceKm !== null && app.distanceKm <= 35
+      ).length;
+      const ratings = apps
+        .map((app) => app.freelancerReviewSummary?.averageRating || 0)
+        .filter((rating) => rating > 0);
+      const avgRating = ratings.length
+        ? Math.round((ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length) * 10) / 10
+        : 0;
+      const quotedAmounts = apps
+        .map((app) => app.applicationSpotlight?.quotedAmount)
+        .filter((amount) => typeof amount === "number" && amount > 0);
+      const avgQuote = quotedAmounts.length
+        ? Math.round(quotedAmounts.reduce((sum, amount) => sum + amount, 0) / quotedAmounts.length)
+        : null;
+
+      jobEntry.applicantStats = {
+        nearbyCount,
+        avgRating,
+        avgQuote,
+      };
+      delete jobEntry.jobLocation;
+    }
 
     return Array.from(jobsMap.values());
   } catch (error) {

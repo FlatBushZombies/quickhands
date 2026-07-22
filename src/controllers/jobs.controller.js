@@ -1,6 +1,7 @@
 import logger from "#config/logger.js";
-import { findUsersMatchingJob } from "#services/match.service.js";
+import { findRecommendedSpecialistsForJob, findUsersMatchingJob } from "#services/match.service.js";
 import { getAllJobs, createJob, searchJobs, getJobById } from "#services/jobs.service.js";
+import { getApplicationCountsByJobIds, getApplicationsByJobId } from "#services/application.service.js";
 import { notifyUser } from "#services/notifications.service.js";
 import { getReviewSummariesByClerkIds } from "#services/user.service.js";
 import { annotateLocationMatch, buildInYourAreaPhrase, normalizeLocationPayload } from "#utils/location.js";
@@ -104,6 +105,7 @@ function enhanceJobsForViewer(jobs, viewerLocation, nearbyOnly = false) {
 async function enrichJobsWithClientProfiles(jobs) {
   const clientClerkIds = jobs.map((job) => job.clerkId).filter(Boolean);
   const reviewSummaries = await getReviewSummariesByClerkIds(clientClerkIds);
+  const applicantCounts = await getApplicationCountsByJobIds(jobs.map((job) => job.id));
 
   return jobs.map((job) => ({
     ...job,
@@ -113,6 +115,7 @@ async function enrichJobsWithClientProfiles(jobs) {
         reviewCount: 0,
         latestReview: null,
       },
+    applicantCount: applicantCounts.get(String(job.id)) || 0,
   }));
 }
 
@@ -389,6 +392,49 @@ export async function createJobController(req, res) {
     return res.status(500).json({
       success: false,
       message: "Failed to create service request",
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Proactive "recommended specialists" for a job — client-only, read-only
+ * browse of qualified nearby freelancers whether or not they've applied.
+ * GET /api/jobs/:id/recommended-specialists
+ */
+export async function getRecommendedSpecialistsController(req, res) {
+  try {
+    const { id } = req.params;
+    const job = await getJobById(id);
+
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Job not found" });
+    }
+
+    if (req.user?.clerkId !== job.clerkId) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to view recommendations for this job",
+      });
+    }
+
+    const applications = await getApplicationsByJobId(id);
+    const appliedClerkIds = applications.map((application) => application.freelancerClerkId);
+
+    const recommended = await findRecommendedSpecialistsForJob({
+      serviceType: job.serviceType,
+      selectedServices: job.selectedServices,
+      jobLocation: job.location,
+      excludeClerkIds: [job.clerkId, ...appliedClerkIds],
+      limit: 10,
+    });
+
+    return res.status(200).json({ success: true, data: recommended });
+  } catch (error) {
+    logger.error("Error fetching recommended specialists:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch recommended specialists",
       error: error.message,
     });
   }

@@ -1,5 +1,6 @@
 import logger from '#config/logger.js';
 import { sql } from '#config/database.js';
+import { getReviewSummariesByClerkIds } from '#services/user.service.js';
 import {
   annotateLocationMatch,
   DEFAULT_NEARBY_RADIUS_KM,
@@ -137,5 +138,121 @@ export async function findUsersMatchingJob({ serviceType, selectedServices, jobL
   } catch (error) {
     logger.error('findUsersMatchingJob DB error', error);
     throw new Error('Failed to match users for job');
+  }
+}
+
+/**
+ * Client-facing "Uber-style" proactive recommendations: qualified
+ * freelancers near a job, whether or not they've applied. Read-only browse
+ * list (no invite/notify action) — reuses the same skill+location matching
+ * as findUsersMatchingJob, but returns richer profile data and accepts a
+ * list of clerkIds to exclude (the client themselves + anyone who already
+ * applied, since they're already visible in the applicant list).
+ */
+export async function findRecommendedSpecialistsForJob({
+  serviceType,
+  selectedServices,
+  jobLocation,
+  radiusKm,
+  excludeClerkIds = [],
+  limit = 10,
+}) {
+  try {
+    const baseTerms = [];
+    if (serviceType) baseTerms.push(serviceType);
+    if (Array.isArray(selectedServices)) baseTerms.push(...selectedServices);
+
+    const terms = Array.from(new Set(baseTerms.map(normalizeTerm))).filter(Boolean);
+    const normalizedJobLocation = normalizeLocationPayload(jobLocation || {});
+    const hasNearbyCoordinates = hasCoordinates(normalizedJobLocation);
+    const effectiveRadiusKm = radiusKm || DEFAULT_NEARBY_RADIUS_KM;
+    const excludeList = excludeClerkIds.filter(Boolean);
+
+    let result;
+    if (hasNearbyCoordinates) {
+      const { minLat, maxLat, minLon, maxLon } = boundingBoxForRadius(
+        normalizedJobLocation,
+        effectiveRadiusKm
+      );
+
+      result = await sql`
+        SELECT id, clerk_id, name, skills, metadata
+        FROM users
+        WHERE clerk_id IS NOT NULL
+          AND NOT (clerk_id = ANY(${excludeList}))
+          AND metadata->>'appRole' IS DISTINCT FROM 'client'
+          AND metadata->'location'->>'latitude' ~ '^-?[0-9]+\.?[0-9]*$'
+          AND metadata->'location'->>'longitude' ~ '^-?[0-9]+\.?[0-9]*$'
+          AND (metadata->'location'->>'latitude')::numeric BETWEEN ${minLat} AND ${maxLat}
+          AND (metadata->'location'->>'longitude')::numeric BETWEEN ${minLon} AND ${maxLon}
+        LIMIT ${MATCH_QUERY_ROW_LIMIT};
+      `;
+    } else if (terms.length > 0) {
+      const likeTerms = terms.map((term) => `%${term}%`);
+      result = await sql`
+        SELECT id, clerk_id, name, skills, metadata
+        FROM users
+        WHERE clerk_id IS NOT NULL
+          AND NOT (clerk_id = ANY(${excludeList}))
+          AND metadata->>'appRole' IS DISTINCT FROM 'client'
+          AND skills ILIKE ANY(${likeTerms})
+        LIMIT ${MATCH_QUERY_ROW_LIMIT};
+      `;
+    } else {
+      return [];
+    }
+
+    const withLocation = result.map((row) => {
+      const freelancerLocation = buildMetadataLocation(row.metadata);
+      const locationMatch = annotateLocationMatch({
+        viewerLocation: normalizedJobLocation,
+        targetLocation: freelancerLocation,
+        radiusKm: effectiveRadiusKm,
+      });
+      const normalizedSkills = normalizeTerm(row.skills || "");
+      const skillMatch = terms.length === 0 ? true : terms.some((term) => normalizedSkills.includes(term));
+
+      return { row, locationMatch, skillMatch };
+    });
+
+    const filtered = withLocation.filter(({ locationMatch, skillMatch }) =>
+      hasNearbyCoordinates ? locationMatch.inYourArea : skillMatch
+    );
+
+    const reviewSummaries = await getReviewSummariesByClerkIds(
+      filtered.map(({ row }) => row.clerk_id)
+    );
+
+    const recommended = filtered
+      .map(({ row, locationMatch, skillMatch }) => ({
+        clerkId: row.clerk_id,
+        displayName: row.name || row.metadata?.profile?.name || "Specialist",
+        imageUrl: row.metadata?.profile?.imageUrl || null,
+        skills: row.skills || null,
+        distanceKm: locationMatch.distanceKm,
+        skillMatch,
+        reviewSummary: reviewSummaries.get(row.clerk_id) || {
+          averageRating: 0,
+          reviewCount: 0,
+          latestReview: null,
+        },
+      }))
+      .sort((left, right) => {
+        const leftSkillRank = left.skillMatch ? 0 : 1;
+        const rightSkillRank = right.skillMatch ? 0 : 1;
+        if (leftSkillRank !== rightSkillRank) return leftSkillRank - rightSkillRank;
+
+        const leftDistance = left.distanceKm ?? Number.MAX_SAFE_INTEGER;
+        const rightDistance = right.distanceKm ?? Number.MAX_SAFE_INTEGER;
+        if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+
+        return (right.reviewSummary.averageRating || 0) - (left.reviewSummary.averageRating || 0);
+      })
+      .slice(0, limit);
+
+    return recommended;
+  } catch (error) {
+    logger.error('findRecommendedSpecialistsForJob DB error', error);
+    throw new Error('Failed to find recommended specialists');
   }
 }
