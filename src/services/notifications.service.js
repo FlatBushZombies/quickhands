@@ -166,6 +166,7 @@ async function resolveNotificationUserId(userId) {
     );
     await upsertUser({
       clerkId: String(userId),
+      name: "User",
       email: `${String(userId)}@quickhands.local`,
     });
 

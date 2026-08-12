@@ -11,6 +11,7 @@ import userRoutes from '#routes/user.routes.js';
 import applicationsRoutes from '#routes/applications.routes.js';
 import messagingRoutes from '#routes/messaging.routes.js';
 import notificationsRoutes from '#routes/notifications.routes.js';
+import portfolioRoutes from '#routes/portfolio.routes.js';
 import testRoutes from '#routes/test.routes.js';
 import { securityMiddleware } from '#middleware/security.middleware.js';
 import { clerkAuth } from '#middleware/clerk.middleware.js';
@@ -73,6 +74,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/applications', applicationsRoutes);
 app.use('/api/messaging', messagingRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/test', testRoutes);
 
 app.use(notFoundHandler);
