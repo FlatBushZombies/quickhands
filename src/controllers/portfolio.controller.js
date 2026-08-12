@@ -1,5 +1,6 @@
 import logger from "#config/logger.js";
 import { getUserByClerkId, getReviewSummaryByClerkId } from "#services/user.service.js";
+import { listReceivedReviews } from "#services/reviews.service.js";
 import {
   addMedia,
   createProject,
@@ -34,9 +35,10 @@ export async function getSpecialistPortfolioController(req, res) {
       return res.status(404).json({ success: false, message: "Specialist not found" });
     }
 
-    const [portfolio, reviewSummary] = await Promise.all([
+    const [portfolio, reviewSummary, receivedReviews] = await Promise.all([
       getPortfolioForSpecialist(clerkId),
       getReviewSummaryByClerkId(clerkId),
+      listReceivedReviews(clerkId),
     ]);
 
     return res.status(200).json({
@@ -52,6 +54,15 @@ export async function getSpecialistPortfolioController(req, res) {
           reviewSummary,
         },
         projects: portfolio.projects,
+        testimonials: receivedReviews.reviews
+          .filter((review) => review.comment)
+          .slice(0, 5)
+          .map((review) => ({
+            reviewerName: review.reviewerName,
+            rating: review.rating,
+            comment: review.comment,
+            createdAt: review.createdAt,
+          })),
       },
     });
   } catch (error) {
