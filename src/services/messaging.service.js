@@ -409,10 +409,78 @@ export async function listConversationsForUser(clerkId, opts = {}) {
       LIMIT ${limit};
     `;
 
-    return attachParticipantAvatars(result.map((row) => mapConversation(row, clerkId)));
+    const conversations = result.map((row) => mapConversation(row, clerkId));
+    const withUnread = await attachUnreadCounts(conversations, clerkId);
+    return attachParticipantAvatars(withUnread);
   } catch (error) {
     logger.error(`listConversationsForUser error for ${clerkId}:`, error);
     throw new Error("Failed to list conversations");
+  }
+}
+
+/**
+ * Batches one query for unread counts across every conversation in the
+ * list, rather than N+1-ing per row. A single threshold-per-row works here
+ * because each participant's own last-read time is a per-conversation
+ * column already available on messaging_conversations, joined in directly.
+ */
+async function attachUnreadCounts(conversations, clerkId) {
+  if (conversations.length === 0) {
+    return conversations;
+  }
+
+  const ids = conversations.map((conversation) => conversation.conversationId);
+
+  const rows = await sql`
+    SELECT m.conversation_id, COUNT(*) AS unread_count
+    FROM messaging_messages m
+    JOIN messaging_conversations c ON c.id = m.conversation_id
+    WHERE m.conversation_id = ANY(${ids})
+      AND m.sender_clerk_id != ${clerkId}
+      AND m.created_at > COALESCE(
+        CASE
+          WHEN c.participant_one_clerk_id = ${clerkId} THEN c.participant_one_last_read_at
+          ELSE c.participant_two_last_read_at
+        END,
+        'epoch'::timestamp
+      )
+    GROUP BY m.conversation_id;
+  `;
+
+  const unreadByConversationId = new Map(
+    rows.map((row) => [row.conversation_id, Number.parseInt(row.unread_count, 10) || 0])
+  );
+
+  return conversations.map((conversation) => ({
+    ...conversation,
+    unreadCount: unreadByConversationId.get(conversation.conversationId) || 0,
+  }));
+}
+
+/**
+ * Marks a conversation read for one participant (sets their last-read
+ * timestamp to now). Called as a side effect of loading the most recent
+ * page of messages -- opening a chat is what "reading" it means here, not
+ * a separate explicit action the frontend has to remember to call.
+ */
+export async function markConversationReadForUser(conversationId, clerkId) {
+  try {
+    await sql`
+      UPDATE messaging_conversations
+      SET
+        participant_one_last_read_at = CASE
+          WHEN participant_one_clerk_id = ${clerkId} THEN NOW()
+          ELSE participant_one_last_read_at
+        END,
+        participant_two_last_read_at = CASE
+          WHEN participant_two_clerk_id = ${clerkId} THEN NOW()
+          ELSE participant_two_last_read_at
+        END
+      WHERE id = ${conversationId};
+    `;
+  } catch (error) {
+    logger.error(`markConversationReadForUser error for ${conversationId}:`, error);
+    // Non-fatal — a missed read-receipt update shouldn't fail message loading.
   }
 }
 
@@ -461,6 +529,12 @@ export async function listMessagesForConversation(conversationId, clerkId, opts 
           ORDER BY created_at DESC
           LIMIT ${limit};
         `;
+
+    // Only the initial (most-recent) page counts as "reading" the
+    // conversation -- paging further back into history isn't a new read.
+    if (!before) {
+      void markConversationReadForUser(conversationId, clerkId);
+    }
 
     return {
       conversation,
