@@ -94,15 +94,39 @@ async function sendExpoPushNotifications({ clerkId, jobId, message, type, conver
     },
   }));
 
-  const response = await fetch(EXPO_PUSH_API_URL, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Accept-Encoding": "gzip, deflate",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  let response;
+  try {
+    response = await fetch(EXPO_PUSH_API_URL, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Accept-Encoding": "gzip, deflate",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    // One retry for a transient network failure (DNS hiccup, connection
+    // reset) — without this, a single blip silently drops the push with
+    // no other delivery path, since this whole call already runs
+    // fire-and-forget outside the request/response cycle.
+    logger.warn("Expo push request failed, retrying once", { clerkId, message: error.message });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      response = await fetch(EXPO_PUSH_API_URL, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Accept-Encoding": "gzip, deflate",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (retryError) {
+      logger.error("Expo push request failed on retry, dropping", { clerkId, message: retryError.message });
+      return;
+    }
+  }
 
   const result = await response.json().catch(() => null);
 
