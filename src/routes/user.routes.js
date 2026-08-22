@@ -13,11 +13,9 @@ import {
   getUserProfileByQuery,
   getUserReviews,
   pingLocation,
-  registerMyPushToken,
   removeMyFavoriteFreelancer,
   removeMySavedSearch,
   saveMyJobTemplate,
-  unregisterMyPushToken,
   updateUserOnboarding,
   updateUserLocation,
 } from '#controllers/user.controller.js';
@@ -30,8 +28,6 @@ router.get('/get', getUserProfileByQuery);
 router.get('/me/templates', requireAuth, getMyJobTemplates);
 router.post('/me/templates', requireAuth, saveMyJobTemplate);
 router.delete('/me/templates/:id', requireAuth, deleteMyJobTemplate);
-router.patch('/me/push-token', requireAuth, registerMyPushToken);
-router.delete('/me/push-token', requireAuth, unregisterMyPushToken);
 router.get('/me/favorites', requireAuth, getMyFavoriteFreelancers);
 router.post('/me/favorites/:freelancerClerkId', requireAuth, addMyFavoriteFreelancer);
 router.delete('/me/favorites/:freelancerClerkId', requireAuth, removeMyFavoriteFreelancer);

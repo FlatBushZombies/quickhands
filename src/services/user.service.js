@@ -106,58 +106,23 @@ function mergeProfileMetadata(metadata, payload = {}) {
     nextProfile.completedOnboarding = payload.completedOnboarding === true;
   }
 
-  return {
+  const nextMetadata = {
     ...currentMetadata,
     profile: nextProfile,
   };
-}
 
-function normalizePushToken(pushToken) {
-  const normalizedToken = asTrimmedString(pushToken);
-  if (
-    !normalizedToken ||
-    (!normalizedToken.startsWith("ExpoPushToken[") &&
-      !normalizedToken.startsWith("ExponentPushToken["))
-  ) {
-    return null;
+  // Tags which app this profile belongs to (client-app vs freelance-app
+  // share the same users table) so job-match notifications and client
+  // filtering can tell them apart. Each app is on its own Clerk project,
+  // so a clerkId can only ever belong to one app — safe to set once and
+  // never overwrite. Previously this was refreshed on every push-token
+  // registration; that mechanism was removed, so it's set here instead,
+  // on user create/onboarding.
+  if (payload.appRole) {
+    nextMetadata.appRole = payload.appRole;
   }
 
-  return normalizedToken;
-}
-
-function buildPushTokenEntry(entry) {
-  if (typeof entry === "string") {
-    const token = normalizePushToken(entry);
-    return token
-      ? {
-          token,
-          platform: null,
-          updatedAt: null,
-        }
-      : null;
-  }
-
-  const token = normalizePushToken(entry?.token);
-  if (!token) {
-    return null;
-  }
-
-  return {
-    token,
-    platform: asTrimmedString(entry?.platform) || null,
-    updatedAt: entry?.updatedAt || null,
-  };
-}
-
-function getStoredPushTokens(metadata) {
-  const notifications = asObject(asObject(metadata).notifications);
-  const tokens = Array.isArray(notifications.pushTokens)
-    ? notifications.pushTokens
-    : [];
-
-  return tokens
-    .map(buildPushTokenEntry)
-    .filter(Boolean);
+  return nextMetadata;
 }
 
 export function buildReviewSummaryFromMetadata(metadata) {
@@ -239,6 +204,7 @@ function buildUserMutation({
   experienceLevel,
   hourlyRate,
   completedOnboarding,
+  appRole,
 }) {
   const existingMetadata = asObject(currentRow?.metadata);
   const nextMetadata = columnState.metadata
@@ -250,6 +216,7 @@ function buildUserMutation({
         experienceLevel,
         hourlyRate,
         completedOnboarding,
+        appRole,
       })
     : null;
 
@@ -321,6 +288,7 @@ export async function upsertUser(userData) {
     experienceLevel,
     hourlyRate,
     completedOnboarding = false,
+    appRole,
   } = userData;
 
   try {
@@ -337,6 +305,7 @@ export async function upsertUser(userData) {
       experienceLevel,
       hourlyRate,
       completedOnboarding,
+      appRole,
     });
 
     let result;
@@ -491,71 +460,6 @@ export async function getClerkIdByDeviceLocationToken(token) {
   );
 
   return result[0]?.clerk_id || null;
-}
-
-export async function listPushTokensByClerkId(clerkId) {
-  const metadata = await getUserMetadataByClerkId(clerkId);
-  return getStoredPushTokens(metadata);
-}
-
-export async function registerPushTokenByClerkId(clerkId, pushToken, platform, appRole) {
-  const normalizedToken = normalizePushToken(pushToken);
-
-  if (!normalizedToken) {
-    throw new Error("A valid Expo push token is required");
-  }
-
-  const normalizedAppRole = asTrimmedString(appRole);
-
-  return patchUserMetadataByClerkId(clerkId, (metadata) => {
-    const notifications = asObject(metadata.notifications);
-    const existingTokens = getStoredPushTokens(metadata).filter(
-      (entry) => entry.token !== normalizedToken
-    );
-
-    return {
-      ...metadata,
-      // Tags which app this profile belongs to (freelance-app vs
-      // client-app share the same users table) so job-match notifications
-      // can be scoped to freelancers only. Set on every push-token
-      // registration, which runs on every signed-in app open.
-      ...(normalizedAppRole ? { appRole: normalizedAppRole } : {}),
-      notifications: {
-        ...notifications,
-        pushTokens: [
-          {
-            token: normalizedToken,
-            platform: asTrimmedString(platform) || null,
-            updatedAt: new Date().toISOString(),
-          },
-          ...existingTokens,
-        ].slice(0, 5),
-      },
-    };
-  });
-}
-
-export async function unregisterPushTokenByClerkId(clerkId, pushToken) {
-  const normalizedToken = normalizePushToken(pushToken);
-
-  if (!normalizedToken) {
-    return patchUserMetadataByClerkId(clerkId, (metadata) => metadata);
-  }
-
-  return patchUserMetadataByClerkId(clerkId, (metadata) => {
-    const notifications = asObject(metadata.notifications);
-    const remainingTokens = getStoredPushTokens(metadata).filter(
-      (entry) => entry.token !== normalizedToken
-    );
-
-    return {
-      ...metadata,
-      notifications: {
-        ...notifications,
-        pushTokens: remainingTokens,
-      },
-    };
-  });
 }
 
 export async function updateUserLocationByClerkId(clerkId, locationPayload) {

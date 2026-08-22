@@ -1,13 +1,7 @@
 import logger from "#config/logger.js";
 import { emitToUser } from "#config/socket.js";
 import { sql } from "#config/database.js";
-import {
-  listPushTokensByClerkId,
-  unregisterPushTokenByClerkId,
-  upsertUser,
-} from "#services/user.service.js";
-
-const EXPO_PUSH_API_URL = "https://exp.host/--/api/v2/push/send";
+import { upsertUser } from "#services/user.service.js";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -33,138 +27,6 @@ function transformNotification(row) {
     conversationId: row.conversation_id || null,
     createdAt: row.created_at,
   };
-}
-
-const PUSH_TITLES_BY_TYPE = {
-  message: "New message",
-  job_match: "Job in your area",
-  new_application: "New application",
-  application_accepted: "Offer accepted",
-  application_rejected: "Offer rejected",
-  application_completed: "Job marked complete",
-  contact_shared: "Contact shared",
-  proximity: "Freelancer nearby",
-  freelancer_match: "New specialist available",
-};
-
-function buildPushTitle(message, type) {
-  if (type && PUSH_TITLES_BY_TYPE[type]) {
-    return PUSH_TITLES_BY_TYPE[type];
-  }
-
-  const normalized = String(message || "").toLowerCase();
-
-  if (normalized.includes("in your area")) {
-    return "Job in your area";
-  }
-
-  if (normalized.includes("accepted")) {
-    return "Offer accepted";
-  }
-
-  if (normalized.includes("rejected")) {
-    return "Offer rejected";
-  }
-
-  if (normalized.includes("phone number") || normalized.includes("contact")) {
-    return "Contact shared";
-  }
-
-  return "QuickHands update";
-}
-
-async function sendExpoPushNotifications({ clerkId, jobId, message, type, conversationId }) {
-  const pushTokens = await listPushTokensByClerkId(clerkId);
-
-  if (pushTokens.length === 0) {
-    return;
-  }
-
-  const payload = pushTokens.map((entry) => ({
-    to: entry.token,
-    title: buildPushTitle(message, type),
-    body: message,
-    sound: "default",
-    data: {
-      clerkId,
-      jobId,
-      message,
-      type: type || null,
-      conversationId: conversationId || null,
-    },
-  }));
-
-  let response;
-  try {
-    response = await fetch(EXPO_PUSH_API_URL, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Accept-Encoding": "gzip, deflate",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (error) {
-    // One retry for a transient network failure (DNS hiccup, connection
-    // reset) — without this, a single blip silently drops the push with
-    // no other delivery path, since this whole call already runs
-    // fire-and-forget outside the request/response cycle.
-    logger.warn("Expo push request failed, retrying once", { clerkId, message: error.message });
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    try {
-      response = await fetch(EXPO_PUSH_API_URL, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Accept-Encoding": "gzip, deflate",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-    } catch (retryError) {
-      logger.error("Expo push request failed on retry, dropping", { clerkId, message: retryError.message });
-      return;
-    }
-  }
-
-  const result = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    logger.warn("Expo push delivery failed", {
-      clerkId,
-      status: response.status,
-      result,
-    });
-    return;
-  }
-
-  const tickets = Array.isArray(result?.data) ? result.data : [];
-  await Promise.all(
-    tickets.map(async (ticket, index) => {
-      if (ticket?.status !== "error") {
-        return;
-      }
-
-      const token = pushTokens[index]?.token;
-      logger.warn("Expo push ticket returned an error", {
-        clerkId,
-        token,
-        details: ticket?.details,
-        message: ticket?.message,
-      });
-
-      if (token && ticket?.details?.error === "DeviceNotRegistered") {
-        await unregisterPushTokenByClerkId(clerkId, token).catch((error) => {
-          logger.warn("Failed to prune stale Expo push token", {
-            clerkId,
-            token,
-            message: error.message,
-          });
-        });
-      }
-    })
-  );
 }
 
 async function resolveNotificationUserId(userId) {
@@ -248,12 +110,6 @@ export async function notifyUser({ clerkId, jobId, message, type = null, convers
   emitToUser(clerkId, "notification:new", {
     notification,
   });
-
-  try {
-    await sendExpoPushNotifications({ clerkId, jobId, message, type, conversationId });
-  } catch (error) {
-    logger.error("notifyUser push delivery error", error);
-  }
 
   return notification;
 }

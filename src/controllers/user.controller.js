@@ -9,10 +9,8 @@ import {
   getUserByClerkId,
   listFavoriteFreelancers,
   listSavedSearches,
-  registerPushTokenByClerkId,
   removeFavoriteFreelancer,
   removeSavedSearch,
-  unregisterPushTokenByClerkId,
   updateUserLocationByClerkId,
   upsertUser,
 } from '#services/user.service.js';
@@ -43,7 +41,7 @@ async function applyFreelancerLocationUpdate(clerkId, location) {
 }
 
 export const createOrRegisterUser = async (req, res) => {
-  const { clerkId, name, email, imageUrl } = req.body || {};
+  const { clerkId, name, email, imageUrl, appRole } = req.body || {};
 
   try {
     if (!clerkId || typeof clerkId !== 'string' || clerkId.trim().length === 0) {
@@ -62,6 +60,7 @@ export const createOrRegisterUser = async (req, res) => {
       experienceLevel: null,
       hourlyRate: null,
       completedOnboarding: false,
+      appRole: typeof appRole === 'string' ? appRole.trim() || undefined : undefined,
     });
 
     logger.info(`User registered successfully for clerk_id=${clerkId}`);
@@ -135,7 +134,7 @@ async function notifyMatchingClientsAboutNewFreelancer({ clerkId, skills, hourly
 }
 
 export const updateUserOnboarding = async (req, res) => {
-  const { clerkId, name, email, imageUrl, skills, experienceLevel, hourlyRate, completedOnboarding } = req.body || {};
+  const { clerkId, name, email, imageUrl, skills, experienceLevel, hourlyRate, completedOnboarding, appRole } = req.body || {};
 
   try {
     if (!clerkId || typeof clerkId !== 'string' || clerkId.trim().length === 0) {
@@ -157,6 +156,7 @@ export const updateUserOnboarding = async (req, res) => {
       experienceLevel,
       hourlyRate,
       completedOnboarding: completedOnboarding ?? true,
+      appRole: typeof appRole === 'string' ? appRole.trim() || undefined : undefined,
     });
 
     // Only fire on the transition into "onboarded", not on every later
@@ -251,44 +251,6 @@ export const pingLocation = async (req, res) => {
   } catch (error) {
     logger.error('Failed to process background location ping:', error);
     return res.status(500).json({ error: 'Failed to process location ping' });
-  }
-};
-
-export const registerMyPushToken = async (req, res) => {
-  try {
-    if (!req.user?.clerkId) {
-      return res.status(401).json({ success: false, message: 'Authentication required' });
-    }
-
-    const { token, platform, appRole } = req.body || {};
-    await registerPushTokenByClerkId(req.user.clerkId, token, platform, appRole);
-
-    return res.status(200).json({
-      success: true,
-      registered: true,
-    });
-  } catch (error) {
-    logger.error(`Failed to register push token for clerk_id=${req.user?.clerkId}:`, error);
-    return res.status(400).json({ success: false, message: error.message || 'Failed to register push token' });
-  }
-};
-
-export const unregisterMyPushToken = async (req, res) => {
-  try {
-    if (!req.user?.clerkId) {
-      return res.status(401).json({ success: false, message: 'Authentication required' });
-    }
-
-    const { token } = req.body || {};
-    await unregisterPushTokenByClerkId(req.user.clerkId, token);
-
-    return res.status(200).json({
-      success: true,
-      removed: true,
-    });
-  } catch (error) {
-    logger.error(`Failed to unregister push token for clerk_id=${req.user?.clerkId}:`, error);
-    return res.status(400).json({ success: false, message: error.message || 'Failed to unregister push token' });
   }
 };
 
