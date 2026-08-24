@@ -26,6 +26,28 @@ server.requestTimeout = Number(process.env.REQUEST_TIMEOUT_MS) || 120000;
 // Initialize WebSocket server
 initSocket(server);
 
+// Render's free tier spins the dyno down after ~15 min with no inbound
+// traffic, and the next request pays a slow (sometimes failing) cold
+// start — the confirmed cause of the intermittent "couldn't load
+// notifications" / "couldn't load jobs" / job-posting failures on the
+// installed Android apps. A GitHub Actions cron was added earlier to ping
+// /health every 10 min, but scheduled Actions runs are best-effort and
+// were observed running 30-80+ min apart in practice — well past the
+// spin-down window. Self-pinging from inside the running process is
+// reliable as long as the process is already up (a real setInterval, not
+// a queued external scheduler), so it keeps the dyno warm far more
+// consistently. RENDER_EXTERNAL_URL is set automatically by Render; this
+// is a no-op anywhere else (e.g. local dev).
+const SELF_PING_URL = process.env.RENDER_EXTERNAL_URL;
+if (SELF_PING_URL) {
+  const SELF_PING_INTERVAL_MS = 5 * 60 * 1000;
+  setInterval(() => {
+    fetch(`${SELF_PING_URL.replace(/\/$/, "")}/health`).catch((error) => {
+      logger.warn("Self-ping keep-alive failed", { message: error.message });
+    });
+  }, SELF_PING_INTERVAL_MS).unref();
+}
+
 server.listen(PORT, () => {
     logger.info(`Listening on Port:${PORT}`);
 });
