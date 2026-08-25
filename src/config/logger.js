@@ -1,7 +1,12 @@
 import winston from "winston";
 
+// RENDER is checked alongside NODE_ENV/VERCEL_ENV because this repo's
+// committed .env pins NODE_ENV=development for local dev, and there's no
+// way to confirm from here whether Render's dashboard overrides it for the
+// live deploy — RENDER is set unconditionally by Render on every instance,
+// so this can't silently misdetect production as dev there.
 const isProduction =
-  process.env.NODE_ENV === "production" || process.env.VERCEL_ENV;
+  process.env.NODE_ENV === "production" || process.env.VERCEL_ENV || Boolean(process.env.RENDER);
 
 const transports = [];
 
