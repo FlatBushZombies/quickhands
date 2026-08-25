@@ -36,9 +36,18 @@ initSocket(server);
 // spin-down window. Self-pinging from inside the running process is
 // reliable as long as the process is already up (a real setInterval, not
 // a queued external scheduler), so it keeps the dyno warm far more
-// consistently. RENDER_EXTERNAL_URL is set automatically by Render; this
-// is a no-op anywhere else (e.g. local dev).
-const SELF_PING_URL = process.env.RENDER_EXTERNAL_URL;
+// consistently.
+// RENDER_EXTERNAL_URL is supposed to be set automatically by Render, but
+// that's not something this codebase controls or can verify from here, so
+// it isn't trusted alone — falling back to the known production URL means
+// this can't silently never activate if that var is ever missing/renamed.
+// Gated on `RENDER` (also auto-set by Render on every instance, unlike
+// NODE_ENV which this repo's committed .env pins to "development" and
+// would otherwise wrongly suppress this in the real deployment) so local
+// dev still never self-pings the real deploy.
+const SELF_PING_URL = process.env.RENDER
+  ? process.env.RENDER_EXTERNAL_URL || "https://quickhands-api.onrender.com"
+  : null;
 if (SELF_PING_URL) {
   const SELF_PING_INTERVAL_MS = 5 * 60 * 1000;
   setInterval(() => {
