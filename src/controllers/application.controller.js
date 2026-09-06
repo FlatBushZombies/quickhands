@@ -407,22 +407,27 @@ export async function updateApplicationStatusController(req, res) {
       });
     }
 
-    await updateApplicationStatus(applicationId, normalizedStatus);
+    const statusUpdateResult = await updateApplicationStatus(applicationId, normalizedStatus, {
+      viewerRole: "client",
+      viewerClerkId: user?.clerkId || null,
+    });
 
     // Direct contact exchange is disabled by policy (see
     // shareApplicationContactController) — coordination stays in-app so the
     // success fee can't be dodged. Clears any legacy shared contact data.
-    if (
-      normalizedStatus !== "completed" &&
-      application.contactExchange?.readyForDirectContact
-    ) {
+    // This branch is rare in practice (contact sharing is policy-disabled
+    // for new data) and clearApplicationClientContact changes fields after
+    // statusUpdateResult was captured above, so it still needs its own
+    // fetch afterward to keep the exact "client" response shape — every
+    // other case below reuses the update's own response instead.
+    let updatedApplication = statusUpdateResult;
+    if (normalizedStatus !== "completed" && application.contactExchange?.readyForDirectContact) {
       await clearApplicationClientContact(applicationId);
+      updatedApplication = await getApplicationById(applicationId, {
+        viewerRole: "client",
+        viewerClerkId: user?.clerkId || null,
+      });
     }
-
-    const updatedApplication = await getApplicationById(applicationId, {
-      viewerRole: "client",
-      viewerClerkId: user?.clerkId || null,
-    });
 
     if (updatedApplication?.freelancerClerkId) {
       try {

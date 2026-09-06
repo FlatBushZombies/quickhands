@@ -266,7 +266,7 @@ export async function getApplicationsByFreelancerId(clerkId) {
 /**
  * Update application status
  */
-export async function updateApplicationStatus(applicationId, status) {
+export async function updateApplicationStatus(applicationId, status, options = {}) {
   const validStatuses = ["pending", "accepted", "rejected", "completed"];
 
   if (!validStatuses.includes(status)) {
@@ -274,22 +274,55 @@ export async function updateApplicationStatus(applicationId, status) {
   }
 
   try {
+    // Combines the write with the job-context join in one round trip
+    // (UPDATE ... FROM ... RETURNING) instead of updating and then
+    // immediately re-SELECTing the same row + join separately — this is
+    // the single most frequently hit write in the app (every accept/
+    // reject/complete, from both the web and mobile clients), so the
+    // redundant round trip was worth cutting specifically here.
     const result = await sql`
-      UPDATE job_applications
+      UPDATE job_applications a
       SET
         status = ${status},
-        completed_at = CASE WHEN ${status} = 'completed' THEN NOW() ELSE completed_at END,
+        completed_at = CASE WHEN ${status} = 'completed' THEN NOW() ELSE a.completed_at END,
         updated_at = NOW()
-      WHERE id = ${applicationId}
-      RETURNING *;
+      FROM service_request sr
+      WHERE a.id = ${applicationId} AND a.job_id = sr.id
+      RETURNING
+        a.*,
+        sr.service_type as job_service_type,
+        sr.max_price as job_max_price,
+        sr.start_date as job_start_date,
+        sr.end_date as job_end_date,
+        sr.user_name as job_client_name,
+        sr.clerk_id as job_client_clerk_id,
+        sr.created_at as job_created_at;
     `;
 
     if (result.length === 0) {
       throw new Error("Application not found");
     }
 
+    const application = result[0];
+    const viewerRole = options.viewerRole || "admin";
+    const [reviewSummaries, clientPreferences] = await Promise.all([
+      getReviewSummariesByClerkIds([application.freelancer_clerk_id, application.job_client_clerk_id]),
+      options.viewerClerkId && viewerRole === "client"
+        ? getClientApplicationPreferences(options.viewerClerkId)
+        : Promise.resolve({}),
+    ]);
+
     logger.info(`Application ${applicationId} status updated to ${status}`);
-    return getApplicationById(applicationId, { viewerRole: "admin" });
+    return buildApplicationContext(application, viewerRole, {
+      clientDecision:
+        options.viewerClerkId && viewerRole === "client"
+          ? clientPreferences[String(application.id)] || { shortlisted: false, privateNote: "", updatedAt: null }
+          : undefined,
+      freelancerReviewSummary:
+        reviewSummaries.get(application.freelancer_clerk_id) || emptyReviewSummary(),
+      clientReviewSummary:
+        reviewSummaries.get(application.job_client_clerk_id) || emptyReviewSummary(),
+    });
   } catch (error) {
     logger.error(`Error updating application ${applicationId}:`, error);
     throw error;
