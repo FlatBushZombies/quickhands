@@ -27,6 +27,9 @@ const RESERVED_USERNAMES = new Set([
   "feedback", "help", "home", "login", "logout", "me", "privacy-policy",
   "professionals", "profile", "quickhands", "settings", "signin", "signup",
   "support", "terms", "www",
+  // Web routes added alongside the specialist search / Hire Now flow.
+  "hire", "jobs", "messages", "onboarding", "post-job", "sign-in", "sign-up",
+  "specialists",
 ]);
 
 const MAX_CUSTOM_LINKS = 8;
@@ -309,6 +312,10 @@ export async function getPublicBioProfile(username) {
 
   return {
     username: linkBio.username,
+    // Needed by the site's "Hire Now" flow to open a conversation. Clerk IDs
+    // are already public identifiers here (GET /api/jobs and /api/user/:clerkId
+    // both expose them without auth).
+    clerkId,
     name: row.name || row.full_name || profile.name || "Quickhands Specialist",
     imageUrl: row.image_url || profile.imageUrl || null,
     skills: row.skills || profile.skills || null,

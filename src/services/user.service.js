@@ -543,6 +543,144 @@ export async function listUsersForChat(excludeClerkId, opts = {}) {
   }
 }
 
+const SPECIALIST_SEARCH_ROW_LIMIT = 500;
+const SPECIALIST_SEARCH_MAX_TOKENS = 5;
+
+// Light suffix stemming so a client typing "plumber" or "electrician" still
+// finds specialists whose skills read "Plumbing" / "Electrical" — the same
+// spirit as findRecommendedSpecialistsForJob's substring matching, but
+// tolerant of the job-title vs trade-name mismatch a free-text box invites.
+function stemSearchToken(token) {
+  const stem = token.replace(/(ians?|ists?|ers?|ing|s)$/i, "");
+  return stem.length >= 3 ? stem : token;
+}
+
+function splitSkillList(skills) {
+  return String(skills || "")
+    .split(/[,;|\n]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Public, unauthenticated specialist search for the marketing site's
+ * "find a specialist" flow. Returns ONLY fields a client would see when
+ * browsing specialists in the apps — never email, phone, coordinates, or
+ * review comment text. Specialists are identified the same way
+ * findRecommendedSpecialistsForJob does it (anyone whose appRole isn't
+ * "client") and must have at least one skill listed to appear at all.
+ * `bioUsername` is set only for specialists who chose to publish their
+ * link-in-bio page, which is what the site's "View portfolio" button
+ * links to.
+ */
+export async function searchSpecialists(opts = {}) {
+  const limit = Math.min(50, Math.max(1, Number(opts.limit) || 24));
+  const tokens = asTrimmedString(opts.q)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, SPECIALIST_SEARCH_MAX_TOKENS)
+    .map((raw) => ({ raw, stem: stemSearchToken(raw) }));
+
+  try {
+    const rows = await sql.query(
+      `
+        SELECT *
+        FROM users
+        WHERE clerk_id IS NOT NULL
+          AND metadata->>'appRole' IS DISTINCT FROM 'client'
+          AND COALESCE(
+            NULLIF(BTRIM(skills), ''),
+            NULLIF(BTRIM(metadata->'profile'->>'skills'), '')
+          ) IS NOT NULL
+        ORDER BY updated_at DESC
+        LIMIT $1;
+      `,
+      [SPECIALIST_SEARCH_ROW_LIMIT]
+    );
+
+    const candidates = rows.map((row) => {
+      const metadata = asObject(row.metadata);
+      const profile = asObject(metadata.profile);
+      const linkBio = asObject(metadata.linkBio);
+      const location = normalizeLocationPayload(metadata.location || {});
+      const skills = row.skills || profile.skills || "";
+      const name = row.name || row.full_name || profile.name || "Specialist";
+      const reviewSummary = buildReviewSummaryFromMetadata(metadata);
+
+      return {
+        clerkId: row.clerk_id,
+        name,
+        imageUrl: row.image_url || profile.imageUrl || null,
+        skills,
+        skillList: splitSkillList(skills),
+        experienceLevel: row.experience_level || profile.experienceLevel || null,
+        hourlyRate: row.hourly_rate ?? profile.hourlyRate ?? null,
+        location: location.label || location.city ? { label: location.label, city: location.city } : null,
+        tagline: asTrimmedString(linkBio.tagline),
+        reviewSummary: {
+          averageRating: reviewSummary.averageRating,
+          reviewCount: reviewSummary.reviewCount,
+        },
+        bioUsername: asTrimmedString(linkBio.username) || null,
+        updatedAt: row.updated_at,
+      };
+    });
+
+    const tokenMatches = (haystack, { raw, stem }) => haystack.includes(raw) || haystack.includes(stem);
+
+    const matched = candidates
+      .map((candidate) => {
+        if (tokens.length === 0) {
+          return { candidate, skillMatch: true };
+        }
+
+        const skillsHaystack = candidate.skills.toLowerCase();
+        const fullHaystack = [
+          candidate.name,
+          candidate.skills,
+          candidate.tagline,
+          candidate.experienceLevel,
+          candidate.location?.label,
+          candidate.location?.city,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        if (!tokens.every((token) => tokenMatches(fullHaystack, token))) {
+          return null;
+        }
+
+        return { candidate, skillMatch: tokens.some((token) => tokenMatches(skillsHaystack, token)) };
+      })
+      .filter(Boolean);
+
+    matched.sort((left, right) => {
+      if (left.skillMatch !== right.skillMatch) return left.skillMatch ? -1 : 1;
+
+      const leftRating = left.candidate.reviewSummary.averageRating || 0;
+      const rightRating = right.candidate.reviewSummary.averageRating || 0;
+      if (leftRating !== rightRating) return rightRating - leftRating;
+
+      if (Boolean(left.candidate.bioUsername) !== Boolean(right.candidate.bioUsername)) {
+        return left.candidate.bioUsername ? -1 : 1;
+      }
+
+      return new Date(right.candidate.updatedAt || 0).getTime() - new Date(left.candidate.updatedAt || 0).getTime();
+    });
+
+    return matched.slice(0, limit).map(({ candidate }) => {
+      const publicFields = { ...candidate };
+      delete publicFields.updatedAt;
+      return publicFields;
+    });
+  } catch (error) {
+    logger.error("searchSpecialists error:", error);
+    throw new Error("Failed to search specialists");
+  }
+}
+
 export async function getUserChatSummary(clerkId) {
   try {
     const row = await getUserRowByClerkId(clerkId);

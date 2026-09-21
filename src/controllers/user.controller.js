@@ -11,6 +11,7 @@ import {
   listSavedSearches,
   removeFavoriteFreelancer,
   removeSavedSearch,
+  searchSpecialists,
   updateUserLocationByClerkId,
   upsertUser,
 } from '#services/user.service.js';
@@ -326,6 +327,25 @@ export const getUserReviews = async (req, res) => {
   } catch (error) {
     logger.error(`Failed to fetch reviews for clerk_id=${clerkId}:`, error);
     return res.status(500).json({ success: false, message: 'Failed to fetch reviews' });
+  }
+};
+
+/**
+ * GET /api/user/search/specialists?q=&limit=
+ * Public (no auth) — powers the marketing site's "find a specialist" search.
+ * See searchSpecialists for exactly which fields are exposed.
+ */
+export const searchSpecialistsController = async (req, res) => {
+  try {
+    const specialists = await searchSpecialists({
+      q: typeof req.query.q === 'string' ? req.query.q.slice(0, 100) : '',
+      limit: req.query.limit,
+    });
+
+    return res.status(200).json({ success: true, data: specialists });
+  } catch (error) {
+    logger.error('Failed to search specialists:', error);
+    return res.status(500).json({ success: false, message: 'Failed to search specialists' });
   }
 };
 
