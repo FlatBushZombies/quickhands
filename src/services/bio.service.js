@@ -76,6 +76,13 @@ export async function isUsernameTaken(username, excludeClerkId = null) {
   return rows.length > 0;
 }
 
+// Entries come back from the client in whatever order it sent them — that
+// IS the reorder mechanism, there's no separate "position" field to keep in
+// sync. A "heading" entry is a plain divider between groups of links (the
+// PaceSetters-style "We are hiring!" pattern) — label only, no URL, so it
+// renders as text rather than a link card. Older saved data has no `type`
+// field at all; those entries default to "link" so nothing already stored
+// silently disappears.
 function sanitizeCustomLinks(input) {
   if (!Array.isArray(input)) {
     return [];
@@ -84,10 +91,19 @@ function sanitizeCustomLinks(input) {
   return input
     .slice(0, MAX_CUSTOM_LINKS)
     .map((entry) => {
+      const type = entry?.type === "heading" ? "heading" : "link";
       const label = asTrimmedString(entry?.label).slice(0, MAX_LINK_LABEL_LENGTH);
-      let url = asTrimmedString(entry?.url);
 
-      if (!label || !url) {
+      if (!label) {
+        return null;
+      }
+
+      if (type === "heading") {
+        return { type, label };
+      }
+
+      let url = asTrimmedString(entry?.url);
+      if (!url) {
         return null;
       }
 
@@ -105,7 +121,7 @@ function sanitizeCustomLinks(input) {
         return null;
       }
 
-      return { label, url };
+      return { type, label, url };
     })
     .filter(Boolean);
 }
@@ -171,6 +187,7 @@ export async function getBioSettingsForClerkId(clerkId) {
     smartLinks: sanitizeSmartLinks(linkBio.smartLinks),
     customLinks: sanitizeCustomLinks(linkBio.customLinks),
     isPublished: Boolean(linkBio.username),
+    viewCount: Number.isFinite(linkBio.viewCount) ? linkBio.viewCount : 0,
     profile: {
       name: user.name,
       imageUrl: user.imageUrl,
@@ -227,6 +244,19 @@ export async function updateBioSettings(clerkId, payload) {
   return getBioSettingsForClerkId(clerkId);
 }
 
+// Fire-and-forget: a visitor's page load must never wait on, or fail
+// because of, this write. Runs after the response-shaping work below has
+// already confirmed the profile is real (no point counting views on a 404).
+function recordBioView(clerkId) {
+  patchUserMetadataByClerkId(clerkId, (metadata) => {
+    const currentLinkBio = asObject(metadata.linkBio);
+    const current = Number.isFinite(currentLinkBio.viewCount) ? currentLinkBio.viewCount : 0;
+    return { ...metadata, linkBio: { ...currentLinkBio, viewCount: current + 1 } };
+  }).catch((error) => {
+    logger.warn("recordBioView failed", { clerkId, message: error.message });
+  });
+}
+
 async function getCompletedJobsCount(clerkId) {
   const rows = await sql.query(
     `
@@ -265,6 +295,7 @@ export async function getPublicBioProfile(username) {
   if (!row) {
     return null;
   }
+  recordBioView(row.clerk_id);
 
   const metadata = asObject(row.metadata);
   const linkBio = asObject(metadata.linkBio);
