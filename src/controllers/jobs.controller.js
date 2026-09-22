@@ -1,9 +1,13 @@
 import logger from "#config/logger.js";
 import { findRecommendedSpecialistsForJob, findUsersMatchingJob } from "#services/match.service.js";
 import { getAllJobs, createJob, searchJobs, getJobById } from "#services/jobs.service.js";
-import { getApplicationCountsByJobIds, getApplicationsByJobId } from "#services/application.service.js";
+import {
+  getApplicationCountsByJobIds,
+  getApplicationsByJobId,
+  getApplicationsByFreelancerId,
+} from "#services/application.service.js";
 import { notifyUser } from "#services/notifications.service.js";
-import { getReviewSummariesByClerkIds } from "#services/user.service.js";
+import { getReviewSummariesByClerkIds, getUserByClerkId } from "#services/user.service.js";
 import { annotateLocationMatch, buildInYourAreaPhrase, normalizeLocationPayload } from "#utils/location.js";
 
 function parseStringArray(value) {
@@ -194,6 +198,77 @@ function applyAdvancedJobFilters(jobs, query = {}) {
   }
 
   return filteredJobs;
+}
+
+function skillTermsFromString(skills) {
+  return String(skills || "")
+    .split(/[,;|\n]+/)
+    .map((term) => term.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * GET /api/jobs/recommended-for-me — the signed-in specialist's own curated
+ * feed: open jobs whose service type/selected services match their profile
+ * skills, nearest-first when they have a location on file, newest first
+ * otherwise. Jobs they posted themselves or already applied to are excluded
+ * — reapplying isn't a real action, and a specialist never applies to their
+ * own posting. Falls back to the general newest-first feed (skillMatch:
+ * false on every row) when the profile has no skills listed yet, rather
+ * than returning nothing.
+ */
+export async function getRecommendedJobsForMeController(req, res) {
+  try {
+    const clerkId = req.user.clerkId;
+    const limit = req.query.limit ? Math.min(50, Math.max(1, parseInt(req.query.limit, 10))) : 12;
+
+    const [me, myApplications, allJobs] = await Promise.all([
+      getUserByClerkId(clerkId),
+      getApplicationsByFreelancerId(clerkId),
+      getAllJobs(),
+    ]);
+
+    if (!me) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const appliedJobIds = new Set(myApplications.map((application) => String(application.jobId)));
+    const skillTerms = skillTermsFromString(me.skills);
+
+    const candidateJobs = allJobs.filter(
+      (job) => job.clerkId !== clerkId && !appliedJobIds.has(String(job.id))
+    );
+
+    const enhanced = await enrichJobsWithClientProfiles(
+      enhanceJobsForViewer(candidateJobs, me.location, false)
+    );
+
+    const scored = enhanced.map((job) => {
+      const haystack = [job.serviceType, ...(job.selectedServices || [])]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const skillMatch = skillTerms.length > 0 && skillTerms.some((term) => haystack.includes(term));
+      return { ...job, skillMatch };
+    });
+
+    scored.sort((left, right) => {
+      if (left.skillMatch !== right.skillMatch) return left.skillMatch ? -1 : 1;
+      const leftDistance = left.proximity?.distanceKm ?? Number.MAX_SAFE_INTEGER;
+      const rightDistance = right.proximity?.distanceKm ?? Number.MAX_SAFE_INTEGER;
+      if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: scored.slice(0, limit),
+      matchedBySkill: skillTerms.length > 0,
+    });
+  } catch (error) {
+    logger.error("Error fetching recommended jobs:", error.message);
+    return res.status(500).json({ success: false, message: "Failed to load recommended jobs" });
+  }
 }
 
 export async function getJob(req, res) {
