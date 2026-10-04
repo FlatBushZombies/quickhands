@@ -496,6 +496,17 @@ export async function getAllApplications() {
 /**
  * Get all applications for jobs owned by a client
  */
+function parseJobJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string" || value.trim() === "") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function getApplicationsForClient(clerkId) {
   try {
     const result = await sql`
@@ -512,7 +523,10 @@ export async function getApplicationsForClient(clerkId) {
         sr.location_label as job_location_label,
         sr.location_city as job_location_city,
         sr.location_latitude as job_location_latitude,
-        sr.location_longitude as job_location_longitude
+        sr.location_longitude as job_location_longitude,
+        sr.additional_info as job_additional_info,
+        sr.selected_services as job_selected_services,
+        sr.documents as job_documents
       FROM job_applications a
       JOIN service_request sr ON a.job_id = sr.id
       WHERE sr.clerk_id = ${clerkId}
@@ -545,6 +559,10 @@ export async function getApplicationsForClient(clerkId) {
           maxPrice: Number(app.job_max_price) || 0,
           startDate: app.job_start_date,
           endDate: app.job_end_date,
+          createdAt: app.job_created_at,
+          additionalInfo: app.job_additional_info || null,
+          selectedServices: parseJobJsonArray(app.job_selected_services),
+          documents: parseJobJsonArray(app.job_documents),
           applications: [],
           applicationSummary: {
             total: 0,
