@@ -401,10 +401,13 @@ export async function updateApplicationStatusController(req, res) {
       });
     }
 
-    if (normalizedStatus === "completed" && application.status !== "accepted") {
+    // Completion is two-party: only POST /:id/confirm-completion can complete an
+    // application, once the client and the specialist have both confirmed.
+    if (normalizedStatus === "completed") {
       return res.status(400).json({
         success: false,
-        message: "Only an accepted application can be marked complete",
+        message:
+          "Completion needs both sides to confirm. Use POST /api/applications/:id/confirm-completion.",
       });
     }
 
