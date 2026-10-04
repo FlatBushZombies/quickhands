@@ -53,7 +53,7 @@ function buildApplicationContext(app, viewerRole, extras = {}) {
       ? {
           job: {
             serviceType: app.job_service_type || null,
-            maxPrice: Number(app.job_max_price) || 0,
+            maxPrice: app.job_max_price == null ? null : Number(app.job_max_price),
             startDate: app.job_start_date || null,
             endDate: app.job_end_date || null,
             clientName: app.job_client_name || null,
@@ -556,7 +556,7 @@ export async function getApplicationsForClient(clerkId) {
         jobsMap.set(jobId, {
           id: jobId,
           serviceType: app.job_service_type,
-          maxPrice: Number(app.job_max_price) || 0,
+          maxPrice: app.job_max_price == null ? null : Number(app.job_max_price),
           startDate: app.job_start_date,
           endDate: app.job_end_date,
           createdAt: app.job_created_at,

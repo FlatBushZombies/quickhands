@@ -9,6 +9,7 @@ import {
 import { notifyUser } from "#services/notifications.service.js";
 import { getReviewSummariesByClerkIds, getUserByClerkId } from "#services/user.service.js";
 import { annotateLocationMatch, buildInYourAreaPhrase, normalizeLocationPayload } from "#utils/location.js";
+import { parseJobBudget, parseJobDocuments, parsePreferredTime } from "#utils/jobPosting.js";
 
 function parseStringArray(value) {
   if (Array.isArray(value)) {
@@ -146,11 +147,11 @@ function applyAdvancedJobFilters(jobs, query = {}) {
   }
 
   if (minBudget !== null) {
-    filteredJobs = filteredJobs.filter((job) => Number(job.maxPrice) >= minBudget);
+    filteredJobs = filteredJobs.filter((job) => job.maxPrice !== null && Number(job.maxPrice) >= minBudget);
   }
 
   if (maxBudget !== null) {
-    filteredJobs = filteredJobs.filter((job) => Number(job.maxPrice) <= maxBudget);
+    filteredJobs = filteredJobs.filter((job) => job.maxPrice !== null && Number(job.maxPrice) <= maxBudget);
   }
 
   if (specialistChoice) {
@@ -353,6 +354,7 @@ export async function createJobController(req, res) {
       specialistChoice,
       additionalInfo,
       documents,
+      preferredTime,
       clerkId: bodyClerkId,
       userName: bodyUserName,
       userAvatar: bodyUserAvatar,
@@ -392,19 +394,25 @@ export async function createJobController(req, res) {
       });
     }
 
-    let normalizedMaxPrice = 0;
-    if (maxPrice !== undefined && maxPrice !== null && maxPrice !== "") {
-      normalizedMaxPrice = Number(maxPrice);
-      if (!Number.isFinite(normalizedMaxPrice) || normalizedMaxPrice < 0) {
-        return res.status(400).json({
-          success: false,
-          message: "maxPrice must be a valid non-negative number",
-        });
-      }
+    // Budget is optional: the Post a task design has no budget field, so a
+    // missing maxPrice is stored as NULL rather than a fake 0.
+    const budget = parseJobBudget(maxPrice);
+    if (!budget.ok) {
+      return res.status(400).json({ success: false, message: budget.message });
+    }
+
+    const time = parsePreferredTime(preferredTime);
+    if (!time.ok) {
+      return res.status(400).json({ success: false, message: time.message });
+    }
+
+    const photos = parseJobDocuments(documents);
+    if (!photos.ok) {
+      return res.status(400).json({ success: false, message: photos.message });
     }
 
     const normalizedSelectedServices = parseStringArray(selectedServices);
-    const normalizedDocuments = parseStringArray(documents);
+    const normalizedDocuments = photos.value;
     const normalizedLocation = normalizeLocationPayload(rawLocation || req.body);
 
     const jobData = {
@@ -412,10 +420,11 @@ export async function createJobController(req, res) {
       selectedServices: JSON.stringify(normalizedSelectedServices),
       startDate,
       endDate,
-      maxPrice: normalizedMaxPrice,
+      maxPrice: budget.value,
       specialistChoice: specialistChoice || null,
       additionalInfo: additionalInfo || null,
       documents: JSON.stringify(normalizedDocuments),
+      preferredTime: time.value,
       clerkId,
       userName,
       userAvatar,
