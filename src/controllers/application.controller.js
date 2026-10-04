@@ -8,6 +8,7 @@ import {
   getApplicationsForClient,
   getApplicationById,
   clearApplicationClientContact,
+  confirmApplicationCompletion,
 } from "#services/application.service.js";
 import { saveClientApplicationPreference } from "#services/applicationPreferences.service.js";
 import { getJobById } from "#services/jobs.service.js";
@@ -759,6 +760,62 @@ export async function submitApplicationReviewController(req, res) {
     return res.status(400).json({
       success: false,
       message: error.message || "Failed to save review",
+    });
+  }
+}
+
+/**
+ * Confirm that an accepted job is finished, from either side.
+ * POST /api/applications/:id/confirm-completion
+ */
+export async function confirmApplicationCompletionController(req, res) {
+  try {
+    const { id: applicationId } = req.params;
+    const { user } = req;
+
+    if (!user?.clerkId) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+
+    const { application, completedNow } = await confirmApplicationCompletion(applicationId, user.clerkId);
+    const isClient = application.job?.clientClerkId === user.clerkId;
+    const otherClerkId = isClient ? application.freelancerClerkId : application.job?.clientClerkId;
+    const conversationId = conversationIdForJobClerkPair(
+      application.jobId,
+      application.freelancerClerkId,
+      application.job?.clientClerkId
+    );
+
+    if (otherClerkId) {
+      try {
+        await notifyUser({
+          clerkId: otherClerkId,
+          jobId: application.jobId,
+          message: completedNow
+            ? "The job is marked as finished by both sides"
+            : isClient
+              ? "The client confirmed the job is finished. Confirm on your side to complete it."
+              : "The specialist confirmed the job is finished. Confirm on your side to complete it.",
+          type: completedNow ? "application_completed" : "application_completion_confirmed",
+          conversationId,
+        });
+      } catch (notificationError) {
+        logger.error("Error notifying about completion confirmation:", notificationError);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: completedNow ? "Job completed" : "Completion confirmed",
+      data: application,
+      completedNow,
+    });
+  } catch (error) {
+    logger.error("Error confirming application completion:", error);
+    const status = error.status || 500;
+    return res.status(status).json({
+      success: false,
+      message: status === 500 ? "Failed to confirm completion" : error.message,
     });
   }
 }

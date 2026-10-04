@@ -251,6 +251,9 @@ export function transformApplication(app, options = {}) {
     status: app.status,
     createdAt: app.created_at,
     updatedAt: app.updated_at,
+    completedAt: app.completed_at ?? null,
+    clientConfirmedAt: app.client_confirmed_at ?? null,
+    freelancerConfirmedAt: app.freelancer_confirmed_at ?? null,
     applicationSpotlight: buildApplicationSpotlight(app),
     contactExchange: buildContactExchange(app, viewerRole),
   };

@@ -70,6 +70,7 @@ function buildApplicationContext(app, viewerRole, extras = {}) {
       extras.freelancerReviewSummary || emptyReviewSummary(),
     clientReviewSummary: extras.clientReviewSummary || emptyReviewSummary(),
     distanceKm: extras.distanceKm ?? null,
+    freelancerCompletedCount: extras.freelancerCompletedCount ?? 0,
   };
 }
 
@@ -384,6 +385,75 @@ export async function getApplicationById(applicationId, options = {}) {
   }
 }
 
+function confirmationError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+/**
+ * Records one side's confirmation that an accepted job is finished. The job
+ * becomes "completed" once both the client and the specialist have confirmed.
+ * Returns the application context plus whether this call completed it.
+ */
+export async function confirmApplicationCompletion(applicationId, viewerClerkId) {
+  const application = await getApplicationById(applicationId, { viewerRole: "admin" });
+  if (!application) {
+    throw confirmationError(404, "Application not found");
+  }
+
+  const isClient = application.job?.clientClerkId === viewerClerkId;
+  const isFreelancer = application.freelancerClerkId === viewerClerkId;
+  if (!isClient && !isFreelancer) {
+    throw confirmationError(403, "You are not part of this job");
+  }
+
+  if (application.status === "completed") {
+    return { application: await getApplicationForViewer(applicationId, isClient, viewerClerkId), completedNow: false };
+  }
+  if (application.status !== "accepted") {
+    throw confirmationError(400, "Only an accepted job can be confirmed as finished");
+  }
+
+  if (isClient) {
+    await sql`
+      UPDATE job_applications
+      SET client_confirmed_at = COALESCE(client_confirmed_at, NOW()), updated_at = NOW()
+      WHERE id = ${applicationId} AND status = 'accepted';
+    `;
+  } else {
+    await sql`
+      UPDATE job_applications
+      SET freelancer_confirmed_at = COALESCE(freelancer_confirmed_at, NOW()), updated_at = NOW()
+      WHERE id = ${applicationId} AND status = 'accepted';
+    `;
+  }
+
+  // Only the call that sees both confirmations flips the status, and the
+  // WHERE clause makes that flip happen at most once.
+  const completedRows = await sql`
+    UPDATE job_applications
+    SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+    WHERE id = ${applicationId}
+      AND status = 'accepted'
+      AND client_confirmed_at IS NOT NULL
+      AND freelancer_confirmed_at IS NOT NULL
+    RETURNING id;
+  `;
+
+  return {
+    application: await getApplicationForViewer(applicationId, isClient, viewerClerkId),
+    completedNow: completedRows.length > 0,
+  };
+}
+
+function getApplicationForViewer(applicationId, isClient, viewerClerkId) {
+  return getApplicationById(applicationId, {
+    viewerRole: isClient ? "client" : "freelancer",
+    viewerClerkId,
+  });
+}
+
 export async function updateApplicationClientContact(
   applicationId,
   {
@@ -535,11 +605,24 @@ export async function getApplicationsForClient(clerkId) {
 
     logger.info(`Retrieved ${result.length} applications for client ${clerkId}`);
     const freelancerClerkIds = [...new Set(result.map((app) => app.freelancer_clerk_id).filter(Boolean))];
-    const [reviewSummaries, clientPreferences, freelancerRows] = await Promise.all([
+    const [reviewSummaries, clientPreferences, freelancerRows, completedRows] = await Promise.all([
       buildReviewSummaryMap(result),
       getClientApplicationPreferences(clerkId),
       getUsersByClerkIds(freelancerClerkIds),
+      freelancerClerkIds.length
+        ? sql`
+            SELECT freelancer_clerk_id, COUNT(*)::int AS completed_count
+            FROM job_applications
+            WHERE status = 'completed' AND freelancer_clerk_id = ANY(${freelancerClerkIds})
+            GROUP BY freelancer_clerk_id;
+          `
+        : Promise.resolve([]),
     ]);
+
+    // Finished jobs per specialist, shown as "N tasks" on the client account page.
+    const completedCountByFreelancer = new Map(
+      completedRows.map((row) => [row.freelancer_clerk_id, Number(row.completed_count) || 0])
+    );
 
     const freelancerLocationByClerkId = new Map(
       freelancerRows.map((row) => [
@@ -597,6 +680,7 @@ export async function getApplicationsForClient(clerkId) {
             reviewSummaries.get(app.freelancer_clerk_id) || emptyReviewSummary(),
           clientReviewSummary:
             reviewSummaries.get(app.job_client_clerk_id) || emptyReviewSummary(),
+          freelancerCompletedCount: completedCountByFreelancer.get(app.freelancer_clerk_id) || 0,
           distanceKm,
         })
       );

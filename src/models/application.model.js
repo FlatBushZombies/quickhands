@@ -34,6 +34,11 @@ export const jobApplications = pgTable("job_applications", {
   // "accepted" so reviews/analytics can tell in-progress work from done work.
   completed_at: timestamp("completed_at"),
 
+  // Two-party completion: each side confirms the accepted work is finished.
+  // The application moves to "completed" once both are set.
+  client_confirmed_at: timestamp("client_confirmed_at"),
+  freelancer_confirmed_at: timestamp("freelancer_confirmed_at"),
+
   // Timestamps
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),
