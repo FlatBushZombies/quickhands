@@ -14,6 +14,7 @@ import notificationsRoutes from '#routes/notifications.routes.js';
 import portfolioRoutes from '#routes/portfolio.routes.js';
 import bioRoutes from '#routes/bio.routes.js';
 import testRoutes from '#routes/test.routes.js';
+import statsRoutes from '#routes/stats.routes.js';
 import { securityMiddleware } from '#middleware/security.middleware.js';
 import { clerkAuth } from '#middleware/clerk.middleware.js';
 import { errorHandler, notFoundHandler } from '#middleware/error.middleware.js';
@@ -77,6 +78,7 @@ app.use('/api/messaging', messagingRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/bio', bioRoutes);
+app.use('/api/stats', statsRoutes);
 app.use('/api/test', testRoutes);
 
 app.use(notFoundHandler);
