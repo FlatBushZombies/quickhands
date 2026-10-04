@@ -8,7 +8,9 @@ import {
   getMyClientAnalytics,
   getMyFavoriteFreelancers,
   getMyJobTemplates,
+  getMyExperienceController,
   getMySavedSearches,
+  updateMyExperienceController,
   getUserProfileByClerkId,
   getUserProfileByQuery,
   getUserReviews,
@@ -38,6 +40,8 @@ router.get('/me/saved-searches', requireAuth, getMySavedSearches);
 router.post('/me/saved-searches', requireAuth, addMySavedSearch);
 router.delete('/me/saved-searches/:savedSearchId', requireAuth, removeMySavedSearch);
 router.get('/me/analytics', requireAuth, getMyClientAnalytics);
+router.get('/me/experience', requireAuth, getMyExperienceController);
+router.put('/me/experience', requireAuth, updateMyExperienceController);
 router.get('/:clerkId/reviews', getUserReviews);
 router.get('/:clerkId', getUserProfileByClerkId);
 router.post('/update', updateUserOnboarding);
