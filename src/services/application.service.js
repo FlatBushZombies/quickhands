@@ -285,6 +285,10 @@ export async function updateApplicationStatus(applicationId, status, options = {
       SET
         status = ${status},
         completed_at = CASE WHEN ${status} = 'completed' THEN NOW() ELSE a.completed_at END,
+        client_confirmed_at = CASE
+          WHEN ${status} = 'completed' THEN COALESCE(a.client_confirmed_at, NOW())
+          ELSE a.client_confirmed_at
+        END,
         updated_at = NOW()
       FROM service_request sr
       WHERE a.id = ${applicationId} AND a.job_id = sr.id
@@ -327,6 +331,33 @@ export async function updateApplicationStatus(applicationId, status, options = {
     logger.error(`Error updating application ${applicationId}:`, error);
     throw error;
   }
+}
+
+/**
+ * The accepted specialist confirms the job is finished. Only stamps their
+ * own confirmation: the client confirms by marking the job completed, and
+ * the job counts as completed once both have (see buildCompletion in
+ * applicationPresentation.js). Returns null when no accepted or completed
+ * application belongs to this freelancer.
+ */
+export async function confirmApplicationCompletionAsFreelancer(applicationId, freelancerClerkId) {
+  const result = await sql`
+    UPDATE job_applications
+    SET
+      freelancer_confirmed_at = COALESCE(freelancer_confirmed_at, NOW()),
+      updated_at = NOW()
+    WHERE id = ${applicationId}
+      AND freelancer_clerk_id = ${freelancerClerkId}
+      AND status IN ('accepted', 'completed')
+    RETURNING id;
+  `;
+
+  if (result.length === 0) {
+    return null;
+  }
+
+  logger.info(`Application ${applicationId} confirmed complete by specialist`);
+  return getApplicationById(applicationId, { viewerRole: "freelancer" });
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   getApplicationsForClient,
   getApplicationById,
   clearApplicationClientContact,
+  confirmApplicationCompletionAsFreelancer,
 } from "#services/application.service.js";
 import { saveClientApplicationPreference } from "#services/applicationPreferences.service.js";
 import { getJobById } from "#services/jobs.service.js";
@@ -504,6 +505,51 @@ export async function rejectApplicationController(req, res) {
   };
 
   return updateApplicationStatusController(req, res);
+}
+
+/**
+ * POST /api/applications/:id/confirm-completion
+ * The accepted specialist confirms the job is finished. The job shows as
+ * completed once the client has confirmed as well.
+ */
+export async function confirmApplicationCompletionController(req, res) {
+  try {
+    const { id: applicationId } = req.params;
+    const { user } = req;
+
+    if (!user?.clerkId) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+
+    const application = await getApplicationById(applicationId, { viewerRole: "admin" });
+    if (!application) {
+      return res.status(404).json({ success: false, message: "Application not found" });
+    }
+
+    if (application.freelancerClerkId !== user.clerkId) {
+      return res.status(403).json({
+        success: false,
+        message: "Only the specialist on this job can confirm completion",
+      });
+    }
+
+    if (application.status !== "accepted" && application.status !== "completed") {
+      return res.status(400).json({
+        success: false,
+        message: "Only an accepted job can be confirmed as complete",
+      });
+    }
+
+    const updated = await confirmApplicationCompletionAsFreelancer(applicationId, user.clerkId);
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Application not found" });
+    }
+
+    return res.status(200).json({ success: true, message: "Completion confirmed", data: updated });
+  } catch (error) {
+    logger.error("Error confirming application completion:", error);
+    return res.status(500).json({ success: false, message: "Failed to confirm completion" });
+  }
 }
 
 export async function completeApplicationController(req, res) {
