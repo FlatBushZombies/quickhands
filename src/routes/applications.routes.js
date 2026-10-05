@@ -9,9 +9,9 @@ import {
   acceptApplicationController,
   rejectApplicationController,
   completeApplicationController,
+  confirmApplicationCompletionController,
   submitApplicationReviewController,
   updateClientApplicationMetaController,
-  confirmApplicationCompletionController,
 } from "#controllers/application.controller.js";
 import { requireAuth } from "#middleware/clerk.middleware.js";
 

@@ -286,6 +286,10 @@ export async function updateApplicationStatus(applicationId, status, options = {
       SET
         status = ${status},
         completed_at = CASE WHEN ${status} = 'completed' THEN NOW() ELSE a.completed_at END,
+        client_confirmed_at = CASE
+          WHEN ${status} = 'completed' THEN COALESCE(a.client_confirmed_at, NOW())
+          ELSE a.client_confirmed_at
+        END,
         updated_at = NOW()
       FROM service_request sr
       WHERE a.id = ${applicationId} AND a.job_id = sr.id

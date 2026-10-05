@@ -237,6 +237,24 @@ export function isMissingApplicationContactColumnError(error) {
   );
 }
 
+/**
+ * A job is completed once the specialist and the client have both confirmed.
+ * The client confirms by marking the application completed, so a completed
+ * status also counts as the client's confirmation. That covers rows completed
+ * before confirmations were recorded.
+ */
+function buildCompletion(app) {
+  const freelancerConfirmedAt = app.freelancer_confirmed_at || null;
+  const clientConfirmedAt =
+    app.client_confirmed_at || (app.status === "completed" ? app.completed_at || null : null);
+  return {
+    freelancerConfirmed: Boolean(freelancerConfirmedAt),
+    clientConfirmed: Boolean(clientConfirmedAt),
+    freelancerConfirmedAt,
+    clientConfirmedAt,
+  };
+}
+
 export function transformApplication(app, options = {}) {
   const viewerRole = options.viewerRole || "freelancer";
 
@@ -255,6 +273,7 @@ export function transformApplication(app, options = {}) {
     clientConfirmedAt: app.client_confirmed_at ?? null,
     freelancerConfirmedAt: app.freelancer_confirmed_at ?? null,
     applicationSpotlight: buildApplicationSpotlight(app),
+    completion: buildCompletion(app),
     contactExchange: buildContactExchange(app, viewerRole),
   };
 }

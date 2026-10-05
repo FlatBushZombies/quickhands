@@ -487,6 +487,58 @@ export async function updateUserLocationByClerkId(clerkId, locationPayload) {
   }
 }
 
+const EXPERIENCE_MAX_ITEMS = 20;
+
+function sanitizeExperienceText(value, maxLength) {
+  return asTrimmedString(value).slice(0, maxLength);
+}
+
+/**
+ * Normalises a specialist's past-work list before it is stored. Entries
+ * without a role/job title are dropped rather than rejected, so one blank
+ * row in the editor can't block saving the rest.
+ */
+export function sanitizeExperienceList(input) {
+  if (!Array.isArray(input)) {
+    throw new Error("experience must be an array");
+  }
+
+  return input
+    .map((item) => ({
+      title: sanitizeExperienceText(item?.title, 120),
+      org: sanitizeExperienceText(item?.org, 120),
+      from: sanitizeExperienceText(item?.from, 30),
+      to: sanitizeExperienceText(item?.to, 30),
+      desc: sanitizeExperienceText(item?.desc, 500),
+    }))
+    .filter((item) => item.title.length > 0)
+    .slice(0, EXPERIENCE_MAX_ITEMS);
+}
+
+export async function getMyExperience(clerkId) {
+  const metadata = await getUserMetadataByClerkId(clerkId);
+  const profile = asObject(metadata.profile);
+  return Array.isArray(profile.experience) ? profile.experience : [];
+}
+
+/**
+ * Replaces the whole list in one write — the editor always sends the full
+ * list, so there is no per-item add/remove endpoint to keep in sync.
+ */
+export async function setMyExperience(clerkId, experience) {
+  const sanitized = sanitizeExperienceList(experience);
+
+  await patchUserMetadataByClerkId(clerkId, (metadata) => ({
+    ...metadata,
+    profile: {
+      ...asObject(metadata.profile),
+      experience: sanitized,
+    },
+  }));
+
+  return sanitized;
+}
+
 function mapChatUserRow(row) {
   const metadata = asObject(row.metadata);
   const profile = asObject(metadata.profile);

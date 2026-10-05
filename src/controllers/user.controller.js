@@ -5,6 +5,7 @@ import {
   findClientsMatchingFreelancer,
   getClerkIdByDeviceLocationToken,
   getClientAnalytics,
+  getMyExperience,
   getOrCreateDeviceLocationToken,
   getUserByClerkId,
   listFavoriteFreelancers,
@@ -12,6 +13,7 @@ import {
   removeFavoriteFreelancer,
   removeSavedSearch,
   searchSpecialists,
+  setMyExperience,
   updateUserLocationByClerkId,
   upsertUser,
 } from '#services/user.service.js';
@@ -307,6 +309,45 @@ export const deleteMyJobTemplate = async (req, res) => {
   } catch (error) {
     logger.error(`Failed to delete template for clerk_id=${req.user?.clerkId}:`, error);
     return res.status(500).json({ success: false, message: 'Failed to delete template' });
+  }
+};
+
+/**
+ * GET /api/user/me/experience — the signed-in specialist's past work list
+ * (stored in users.metadata.profile.experience).
+ */
+export const getMyExperienceController = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const experience = await getMyExperience(req.user.clerkId);
+    return res.status(200).json({ success: true, experience });
+  } catch (error) {
+    logger.error(`Failed to fetch experience for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch experience' });
+  }
+};
+
+/**
+ * PUT /api/user/me/experience — replaces the whole list. Body: { experience: [...] }.
+ */
+export const updateMyExperienceController = async (req, res) => {
+  try {
+    if (!req.user?.clerkId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const experience = await setMyExperience(req.user.clerkId, req.body?.experience);
+    return res.status(200).json({ success: true, experience });
+  } catch (error) {
+    if (error?.message === 'experience must be an array') {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+
+    logger.error(`Failed to save experience for clerk_id=${req.user?.clerkId}:`, error);
+    return res.status(500).json({ success: false, message: 'Failed to save experience' });
   }
 };
 
