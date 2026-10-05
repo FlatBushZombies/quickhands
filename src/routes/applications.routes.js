@@ -11,6 +11,7 @@ import {
   completeApplicationController,
   submitApplicationReviewController,
   updateClientApplicationMetaController,
+  confirmApplicationCompletionController,
 } from "#controllers/application.controller.js";
 import { requireAuth } from "#middleware/clerk.middleware.js";
 
@@ -28,6 +29,9 @@ router.patch("/:id/accept", requireAuth, acceptApplicationController);
 router.post("/:id/accept", requireAuth, acceptApplicationController);
 router.patch("/:id/reject", requireAuth, rejectApplicationController);
 router.post("/:id/reject", requireAuth, rejectApplicationController);
+// Two-party completion: the client or the specialist confirms the accepted job
+// is finished; the job completes once both have confirmed.
+router.post("/:id/confirm-completion", requireAuth, confirmApplicationCompletionController);
 router.patch("/:id/complete", requireAuth, completeApplicationController);
 router.post("/:id/complete", requireAuth, completeApplicationController);
 router.patch("/:id/contact", requireAuth, shareApplicationContactController);
