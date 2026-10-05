@@ -10,6 +10,7 @@ import { notifyUser } from "#services/notifications.service.js";
 import { getReviewSummariesByClerkIds, getUserByClerkId } from "#services/user.service.js";
 import { annotateLocationMatch, buildInYourAreaPhrase, normalizeLocationPayload } from "#utils/location.js";
 import { parseJobBudget, parseJobDocuments, parsePreferredTime } from "#utils/jobPosting.js";
+import { filterJobsByServices } from "#utils/jobServices.js";
 
 function parseStringArray(value) {
   if (Array.isArray(value)) {
@@ -212,16 +213,21 @@ function skillTermsFromString(skills) {
  * GET /api/jobs/recommended-for-me — the signed-in specialist's own curated
  * feed: open jobs whose service type/selected services match their profile
  * skills, nearest-first when they have a location on file, newest first
- * otherwise. Jobs they posted themselves or already applied to are excluded
- * — reapplying isn't a real action, and a specialist never applies to their
- * own posting. Falls back to the general newest-first feed (skillMatch:
- * false on every row) when the profile has no skills listed yet, rather
- * than returning nothing.
+ * otherwise. Jobs they posted themselves are always excluded. Jobs they
+ * already applied to are excluded unless includeApplied=true, in which case
+ * each row carries alreadyApplied. services=<comma list> keeps only jobs for
+ * those services (the specialist's profession), before the limit is applied.
+ * Falls back to the general newest-first feed (skillMatch: false on every
+ * row) when the profile has no skills listed yet, rather than returning
+ * nothing.
  */
 export async function getRecommendedJobsForMeController(req, res) {
   try {
     const clerkId = req.user.clerkId;
     const limit = req.query.limit ? Math.min(50, Math.max(1, parseInt(req.query.limit, 10))) : 12;
+    const services =
+      typeof req.query.services === "string" ? req.query.services.split(",").filter(Boolean) : [];
+    const includeApplied = req.query.includeApplied === "true";
 
     const [me, myApplications, allJobs] = await Promise.all([
       getUserByClerkId(clerkId),
@@ -236,8 +242,11 @@ export async function getRecommendedJobsForMeController(req, res) {
     const appliedJobIds = new Set(myApplications.map((application) => String(application.jobId)));
     const skillTerms = skillTermsFromString(me.skills);
 
-    const candidateJobs = allJobs.filter(
-      (job) => job.clerkId !== clerkId && !appliedJobIds.has(String(job.id))
+    const candidateJobs = filterJobsByServices(
+      allJobs.filter(
+        (job) => job.clerkId !== clerkId && (includeApplied || !appliedJobIds.has(String(job.id)))
+      ),
+      services
     );
 
     const enhanced = await enrichJobsWithClientProfiles(
@@ -250,7 +259,7 @@ export async function getRecommendedJobsForMeController(req, res) {
         .join(" ")
         .toLowerCase();
       const skillMatch = skillTerms.length > 0 && skillTerms.some((term) => haystack.includes(term));
-      return { ...job, skillMatch };
+      return { ...job, skillMatch, alreadyApplied: appliedJobIds.has(String(job.id)) };
     });
 
     scored.sort((left, right) => {
