@@ -372,15 +372,22 @@ export const getUserReviews = async (req, res) => {
 };
 
 /**
- * GET /api/user/search/specialists?q=&limit=
+ * GET /api/user/search/specialists?q=&limit=&lat=&lng=
  * Public (no auth) — powers the marketing site's "find a specialist" search.
+ * `lat`/`lng` are the client's own coordinates (e.g. from browser geolocation);
+ * when given, results are sorted nearest-first and carry a `distanceKm`.
  * See searchSpecialists for exactly which fields are exposed.
  */
 export const searchSpecialistsController = async (req, res) => {
   try {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const viewerLocation = Number.isFinite(lat) && Number.isFinite(lng) ? { latitude: lat, longitude: lng } : null;
+
     const specialists = await searchSpecialists({
       q: typeof req.query.q === 'string' ? req.query.q.slice(0, 100) : '',
       limit: req.query.limit,
+      viewerLocation,
     });
 
     return res.status(200).json({ success: true, data: specialists });

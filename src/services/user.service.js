@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
-import { normalizeLocationPayload } from "#utils/location.js";
+import { calculateDistanceKm, hasCoordinates, normalizeLocationPayload, roundDistanceKm } from "#utils/location.js";
 
 const USER_OPTIONAL_COLUMNS = [
   "email",
@@ -627,6 +627,7 @@ function splitSkillList(skills) {
  */
 export async function searchSpecialists(opts = {}) {
   const limit = Math.min(50, Math.max(1, Number(opts.limit) || 24));
+  const viewerLocation = hasCoordinates(opts.viewerLocation) ? opts.viewerLocation : null;
   const tokens = asTrimmedString(opts.q)
     .toLowerCase()
     .split(/\s+/)
@@ -659,6 +660,7 @@ export async function searchSpecialists(opts = {}) {
       const skills = row.skills || profile.skills || "";
       const name = row.name || row.full_name || profile.name || "Specialist";
       const reviewSummary = buildReviewSummaryFromMetadata(metadata);
+      const distanceKm = roundDistanceKm(calculateDistanceKm(viewerLocation, location));
 
       return {
         clerkId: row.clerk_id,
@@ -669,6 +671,7 @@ export async function searchSpecialists(opts = {}) {
         experienceLevel: row.experience_level || profile.experienceLevel || null,
         hourlyRate: row.hourly_rate ?? profile.hourlyRate ?? null,
         location: location.label || location.city ? { label: location.label, city: location.city } : null,
+        distanceKm,
         tagline: asTrimmedString(linkBio.tagline),
         reviewSummary: {
           averageRating: reviewSummary.averageRating,
@@ -710,6 +713,17 @@ export async function searchSpecialists(opts = {}) {
 
     matched.sort((left, right) => {
       if (left.skillMatch !== right.skillMatch) return left.skillMatch ? -1 : 1;
+
+      if (viewerLocation) {
+        const leftDistance = left.candidate.distanceKm;
+        const rightDistance = right.candidate.distanceKm;
+        if (leftDistance !== null && rightDistance !== null && leftDistance !== rightDistance) {
+          return leftDistance - rightDistance;
+        }
+        if ((leftDistance !== null) !== (rightDistance !== null)) {
+          return leftDistance !== null ? -1 : 1;
+        }
+      }
 
       const leftRating = left.candidate.reviewSummary.averageRating || 0;
       const rightRating = right.candidate.reviewSummary.averageRating || 0;
