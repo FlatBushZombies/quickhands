@@ -11,6 +11,7 @@ import {
   getMyExperienceController,
   getMySavedSearches,
   updateMyExperienceController,
+  getPublicSpecialistController,
   getUserProfileByClerkId,
   getUserProfileByQuery,
   getUserReviews,
@@ -28,8 +29,9 @@ const router = express.Router();
 
 router.post('/', createOrRegisterUser);
 router.get('/get', getUserProfileByQuery);
-// Public — before the "/:clerkId" catch-all so it can't be shadowed.
+// Public — before the "/:clerkId" catch-all so they can't be shadowed.
 router.get('/search/specialists', searchSpecialistsController);
+router.get('/specialists/:clerkId', getPublicSpecialistController);
 router.get('/me/templates', requireAuth, getMyJobTemplates);
 router.post('/me/templates', requireAuth, saveMyJobTemplate);
 router.delete('/me/templates/:id', requireAuth, deleteMyJobTemplate);

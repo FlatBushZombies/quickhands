@@ -7,6 +7,7 @@ import {
   getClientAnalytics,
   getMyExperience,
   getOrCreateDeviceLocationToken,
+  getPublicSpecialistByClerkId,
   getUserByClerkId,
   listFavoriteFreelancers,
   listSavedSearches,
@@ -394,6 +395,28 @@ export const searchSpecialistsController = async (req, res) => {
   } catch (error) {
     logger.error('Failed to search specialists:', error);
     return res.status(500).json({ success: false, message: 'Failed to search specialists' });
+  }
+};
+
+/**
+ * GET /api/user/specialists/:clerkId?lat=&lng=
+ * Public (no auth) — resolves one specialist for the "hire" booking flow.
+ * Same privacy-safe shape as searchSpecialistsController.
+ */
+export const getPublicSpecialistController = async (req, res) => {
+  try {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const viewerLocation = Number.isFinite(lat) && Number.isFinite(lng) ? { latitude: lat, longitude: lng } : null;
+
+    const specialist = await getPublicSpecialistByClerkId(req.params.clerkId, viewerLocation);
+    if (!specialist) {
+      return res.status(404).json({ success: false, message: 'Specialist not found' });
+    }
+    return res.status(200).json({ success: true, data: specialist });
+  } catch (error) {
+    logger.error('Failed to load public specialist profile:', error);
+    return res.status(500).json({ success: false, message: 'Failed to load specialist' });
   }
 };
 

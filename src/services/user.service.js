@@ -614,6 +614,61 @@ function splitSkillList(skills) {
     .filter(Boolean);
 }
 
+// The fields a client is allowed to see about a specialist in the
+// directory/search and on the "hire" flow — never email, phone, or raw
+// coordinates (only the human-readable label/city survive).
+function buildPublicSpecialistSummary(row, viewerLocation) {
+  const metadata = asObject(row.metadata);
+  const profile = asObject(metadata.profile);
+  const linkBio = asObject(metadata.linkBio);
+  const location = normalizeLocationPayload(metadata.location || {});
+  const skills = row.skills || profile.skills || "";
+  const name = row.name || row.full_name || profile.name || "Specialist";
+  const reviewSummary = buildReviewSummaryFromMetadata(metadata);
+  const distanceKm = roundDistanceKm(calculateDistanceKm(viewerLocation, location));
+
+  return {
+    clerkId: row.clerk_id,
+    name,
+    imageUrl: row.image_url || profile.imageUrl || null,
+    skills,
+    skillList: splitSkillList(skills),
+    experienceLevel: row.experience_level || profile.experienceLevel || null,
+    hourlyRate: row.hourly_rate ?? profile.hourlyRate ?? null,
+    location: location.label || location.city ? { label: location.label, city: location.city } : null,
+    distanceKm,
+    tagline: asTrimmedString(linkBio.tagline),
+    reviewSummary: {
+      averageRating: reviewSummary.averageRating,
+      reviewCount: reviewSummary.reviewCount,
+    },
+    bioUsername: asTrimmedString(linkBio.username) || null,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * Single-specialist lookup for the "hire" flow (booking a specific person
+ * from /specialists or their bio page) — same public, privacy-safe shape as
+ * searchSpecialists. Returns null for clients or for anyone with no clerk id.
+ */
+export async function getPublicSpecialistByClerkId(clerkId, viewerLocation = null) {
+  try {
+    const [row] = await sql.query(
+      `SELECT * FROM users WHERE clerk_id = $1 AND metadata->>'appRole' IS DISTINCT FROM 'client' LIMIT 1`,
+      [clerkId]
+    );
+    if (!row) return null;
+
+    const summary = buildPublicSpecialistSummary(row, viewerLocation);
+    delete summary.updatedAt;
+    return summary;
+  } catch (error) {
+    logger.error("getPublicSpecialistByClerkId error:", error);
+    throw new Error("Failed to load specialist");
+  }
+}
+
 /**
  * Public, unauthenticated specialist search for the marketing site's
  * "find a specialist" flow. Returns ONLY fields a client would see when
@@ -653,33 +708,7 @@ export async function searchSpecialists(opts = {}) {
     );
 
     const candidates = rows.map((row) => {
-      const metadata = asObject(row.metadata);
-      const profile = asObject(metadata.profile);
-      const linkBio = asObject(metadata.linkBio);
-      const location = normalizeLocationPayload(metadata.location || {});
-      const skills = row.skills || profile.skills || "";
-      const name = row.name || row.full_name || profile.name || "Specialist";
-      const reviewSummary = buildReviewSummaryFromMetadata(metadata);
-      const distanceKm = roundDistanceKm(calculateDistanceKm(viewerLocation, location));
-
-      return {
-        clerkId: row.clerk_id,
-        name,
-        imageUrl: row.image_url || profile.imageUrl || null,
-        skills,
-        skillList: splitSkillList(skills),
-        experienceLevel: row.experience_level || profile.experienceLevel || null,
-        hourlyRate: row.hourly_rate ?? profile.hourlyRate ?? null,
-        location: location.label || location.city ? { label: location.label, city: location.city } : null,
-        distanceKm,
-        tagline: asTrimmedString(linkBio.tagline),
-        reviewSummary: {
-          averageRating: reviewSummary.averageRating,
-          reviewCount: reviewSummary.reviewCount,
-        },
-        bioUsername: asTrimmedString(linkBio.username) || null,
-        updatedAt: row.updated_at,
-      };
+      return buildPublicSpecialistSummary(row, viewerLocation);
     });
 
     const tokenMatches = (haystack, { raw, stem }) => haystack.includes(raw) || haystack.includes(stem);
