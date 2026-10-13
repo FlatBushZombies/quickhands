@@ -1,6 +1,7 @@
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
 import { getClientApplicationPreferences } from "#services/applicationPreferences.service.js";
+import { notifyUser } from "#services/notifications.service.js";
 import { getReviewSummariesByClerkIds, getUsersByClerkIds } from "#services/user.service.js";
 import { conversationIdForJobClerkPair } from "#utils/conversationId.js";
 import {
@@ -318,6 +319,18 @@ export async function updateApplicationStatus(applicationId, status, options = {
     ]);
 
     logger.info(`Application ${applicationId} status updated to ${status}`);
+
+    if (status === "accepted") {
+      notifyUser({
+        clerkId: application.freelancer_clerk_id,
+        jobId: application.job_id,
+        type: "hired",
+        message: `${application.job_client_name || "A client"} hired you for ${application.job_service_type || "a job"}`,
+      }).catch((error) => {
+        logger.error(`updateApplicationStatus notify error for ${applicationId}:`, error.message);
+      });
+    }
+
     return buildApplicationContext(application, viewerRole, {
       clientDecision:
         options.viewerClerkId && viewerRole === "client"

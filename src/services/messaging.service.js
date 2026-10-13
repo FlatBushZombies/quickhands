@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
+import { notifyUser } from "#services/notifications.service.js";
 import {
   buildCommunicationCardText,
   parseCommunicationCardText,
@@ -687,6 +688,21 @@ export async function saveConversationMessage({
           END
         WHERE id = ${conversationId};
       `;
+    }
+
+    if (!duplicate) {
+      const recipient = getOtherParticipant(conversation, senderClerkId);
+      if (recipient) {
+        notifyUser({
+          clerkId: recipient.clerkId,
+          jobId: conversation.jobId ?? null,
+          type: "message",
+          conversationId,
+          message: `${resolvedSenderName} sent you a message`,
+        }).catch((error) => {
+          logger.error(`saveConversationMessage notify error for ${conversationId}:`, error.message);
+        });
+      }
     }
 
     return {
