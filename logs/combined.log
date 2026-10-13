@@ -314,3 +314,29 @@
 {"level":"info","message":"Notification created id=70 userId=228 jobId=null","service":"quickhands-api","timestamp":"2026-08-12T11:49:43.924Z"}
 {"level":"warn","message":"Socket.IO not initialized, skipping emit for userId=test_portfolio_specialist_1786535363108","service":"quickhands-api","timestamp":"2026-08-12T11:49:43.924Z"}
 {"level":"info","message":"User found: clerk_id=user_3GjTZYZZLzMQ7wTH3awuHDT1S92","service":"quickhands-api","timestamp":"2026-08-12T17:38:37.732Z"}
+{"level":"info","message":"Socket.IO initialized (Clerk JWT auth; messaging events)","service":"quickhands-api","timestamp":"2026-10-06T12:35:33.291Z"}
+{"level":"info","message":"Listening on Port:3000","service":"quickhands-api","timestamp":"2026-10-06T12:35:33.334Z"}
+{"level":"info","message":"Socket.IO initialized (Clerk JWT auth; messaging events)","service":"quickhands-api","timestamp":"2026-10-06T12:35:48.378Z"}
+{"level":"info","message":"Listening on Port:3000","service":"quickhands-api","timestamp":"2026-10-06T12:35:48.416Z"}
+{"level":"info","message":"User found: clerk_id=smoke_test_specialist_appt","service":"quickhands-api","timestamp":"2026-10-12T16:10:00.916Z"}
+{"level":"info","message":"User found: clerk_id=smoke_test_client_appt","service":"quickhands-api","timestamp":"2026-10-12T16:10:01.735Z"}
+{"level":"info","message":"Notification created id=85 userId=242 jobId=null","service":"quickhands-api","timestamp":"2026-10-12T16:10:02.667Z"}
+{"level":"warn","message":"Socket.IO not initialized, skipping emit for userId=smoke_test_specialist_appt","service":"quickhands-api","timestamp":"2026-10-12T16:10:02.668Z"}
+{"level":"info","message":"User found: clerk_id=smoke_test_specialist_appt","service":"quickhands-api","timestamp":"2026-10-12T16:10:03.049Z"}
+{"level":"info","message":"User found: clerk_id=smoke_test_specialist_appt","service":"quickhands-api","timestamp":"2026-10-12T16:11:23.101Z"}
+{"level":"info","message":"User found: clerk_id=smoke_test_client_appt","service":"quickhands-api","timestamp":"2026-10-12T16:11:24.027Z"}
+{"level":"info","message":"Notification created id=86 userId=244 jobId=null","service":"quickhands-api","timestamp":"2026-10-12T16:11:24.962Z"}
+{"level":"warn","message":"Socket.IO not initialized, skipping emit for userId=smoke_test_specialist_appt","service":"quickhands-api","timestamp":"2026-10-12T16:11:24.963Z"}
+{"level":"info","message":"User found: clerk_id=smoke_test_specialist_appt","service":"quickhands-api","timestamp":"2026-10-12T16:11:25.427Z"}
+{"level":"info","message":"User found: clerk_id=smoke_test_specialist_appt","service":"quickhands-api","timestamp":"2026-10-12T16:13:23.955Z"}
+{"level":"info","message":"User found: clerk_id=smoke_test_client_appt","service":"quickhands-api","timestamp":"2026-10-12T16:13:24.748Z"}
+{"level":"info","message":"Notification created id=87 userId=246 jobId=null","service":"quickhands-api","timestamp":"2026-10-12T16:13:25.518Z"}
+{"level":"warn","message":"Socket.IO not initialized, skipping emit for userId=smoke_test_specialist_appt","service":"quickhands-api","timestamp":"2026-10-12T16:13:25.519Z"}
+{"level":"info","message":"User found: clerk_id=smoke_test_specialist_appt","service":"quickhands-api","timestamp":"2026-10-12T16:13:25.884Z"}
+{"level":"info","message":"Notification created id=88 userId=246 jobId=null","service":"quickhands-api","timestamp":"2026-10-12T16:13:29.404Z"}
+{"level":"warn","message":"Socket.IO not initialized, skipping emit for userId=smoke_test_specialist_appt","service":"quickhands-api","timestamp":"2026-10-12T16:13:29.405Z"}
+{"level":"info","message":"Socket.IO initialized (Clerk JWT auth; messaging events)","service":"quickhands-api","timestamp":"2026-10-12T16:39:29.808Z"}
+{"level":"info","message":"Listening on Port:3000","service":"quickhands-api","timestamp":"2026-10-12T16:39:29.994Z"}
+{"level":"info","message":"::1 - - [12/Oct/2026:16:39:47 +0000] \"GET /api/user/search/specialists?limit=5 HTTP/1.1\" 200 398 \"-\" \"curl/8.15.0\"","service":"quickhands-api","timestamp":"2026-10-12T16:39:47.393Z"}
+{"level":"info","message":"::1 - - [12/Oct/2026:16:39:56 +0000] \"GET /api/user/search/specialists?limit=5&lat=-17.8252&lng=31.0335 HTTP/1.1\" 200 397 \"-\" \"curl/8.15.0\"","service":"quickhands-api","timestamp":"2026-10-12T16:39:56.346Z"}
+{"level":"info","message":"::1 - - [12/Oct/2026:16:39:57 +0000] \"GET /api/user/specialists/user_3KGwlWLjPfo4sPDovYbBACaTT4S?lat=-17.8252&lng=31.0335 HTTP/1.1\" 200 395 \"-\" \"curl/8.15.0\"","service":"quickhands-api","timestamp":"2026-10-12T16:39:57.512Z"}
