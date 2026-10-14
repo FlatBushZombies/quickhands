@@ -19,6 +19,12 @@ function trimOptionalString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+// The user's real Clerk profile photo — same column/fallback transformUser
+// (user.service.js) reads, kept in sync by the Clerk webhook.
+function imageUrlFromUserRow(row) {
+  return row?.image_url || row?.metadata?.profile?.imageUrl || null;
+}
+
 function emptyReviewSummary() {
   return {
     averageRating: 0,
@@ -41,6 +47,7 @@ function buildApplicationContext(app, viewerRole, extras = {}) {
 
   return {
     ...transformedApplication,
+    freelancerImageUrl: extras.freelancerImageUrl ?? null,
     ...(hasConversationParticipants
       ? {
           conversationId: conversationIdForJobClerkPair(
@@ -59,6 +66,7 @@ function buildApplicationContext(app, viewerRole, extras = {}) {
             endDate: app.job_end_date || null,
             clientName: app.job_client_name || null,
             clientClerkId: app.job_client_clerk_id || null,
+            clientImageUrl: extras.clientImageUrl ?? null,
           },
         }
       : {}),
@@ -228,6 +236,41 @@ export async function getApplicationCountsByJobIds(jobIds) {
 }
 
 /**
+ * The job's own status, as a specialist browsing the feed should see it —
+ * derived from its applications rather than stored on the job itself (jobs
+ * have no status column): "completed" once any application finished,
+ * "in_progress" once the client has hired someone, otherwise "open".
+ */
+export async function getJobStatusesByJobIds(jobIds) {
+  const uniqueIds = Array.from(new Set((jobIds || []).filter((id) => id !== null && id !== undefined)));
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  try {
+    const result = await sql`
+      SELECT
+        job_id,
+        bool_or(status = 'completed') AS has_completed,
+        bool_or(status = 'accepted') AS has_accepted
+      FROM job_applications
+      WHERE job_id = ANY(${uniqueIds})
+      GROUP BY job_id;
+    `;
+
+    return new Map(
+      result.map((row) => [
+        String(row.job_id),
+        row.has_completed ? "completed" : row.has_accepted ? "in_progress" : "open",
+      ])
+    );
+  } catch (error) {
+    logger.error("Error deriving job statuses for job batch:", error);
+    throw error;
+  }
+}
+
+/**
  * Get all applications by a freelancer
  */
 export async function getApplicationsByFreelancerId(clerkId) {
@@ -249,7 +292,14 @@ export async function getApplicationsByFreelancerId(clerkId) {
     `;
 
     logger.info(`Retrieved ${result.length} applications for freelancer ${clerkId}`);
-    const reviewSummaries = await buildReviewSummaryMap(result);
+    const clientClerkIds = [...new Set(result.map((app) => app.job_client_clerk_id).filter(Boolean))];
+    const [reviewSummaries, clientRows] = await Promise.all([
+      buildReviewSummaryMap(result),
+      getUsersByClerkIds(clientClerkIds),
+    ]);
+    const clientImageByClerkId = new Map(
+      clientRows.map((row) => [row.clerk_id, imageUrlFromUserRow(row)])
+    );
 
     return result.map((app) =>
       buildApplicationContext(app, "freelancer", {
@@ -257,6 +307,7 @@ export async function getApplicationsByFreelancerId(clerkId) {
           reviewSummaries.get(app.freelancer_clerk_id) || emptyReviewSummary(),
         clientReviewSummary:
           reviewSummaries.get(app.job_client_clerk_id) || emptyReviewSummary(),
+        clientImageUrl: clientImageByClerkId.get(app.job_client_clerk_id) || null,
       })
     );
   } catch (error) {
@@ -311,12 +362,16 @@ export async function updateApplicationStatus(applicationId, status, options = {
 
     const application = result[0];
     const viewerRole = options.viewerRole || "admin";
-    const [reviewSummaries, clientPreferences] = await Promise.all([
+    const [reviewSummaries, clientPreferences, participantRows] = await Promise.all([
       getReviewSummariesByClerkIds([application.freelancer_clerk_id, application.job_client_clerk_id]),
       options.viewerClerkId && viewerRole === "client"
         ? getClientApplicationPreferences(options.viewerClerkId)
         : Promise.resolve({}),
+      getUsersByClerkIds([application.freelancer_clerk_id, application.job_client_clerk_id]),
     ]);
+    const imageByClerkId = new Map(
+      participantRows.map((row) => [row.clerk_id, imageUrlFromUserRow(row)])
+    );
 
     logger.info(`Application ${applicationId} status updated to ${status}`);
 
@@ -340,6 +395,8 @@ export async function updateApplicationStatus(applicationId, status, options = {
         reviewSummaries.get(application.freelancer_clerk_id) || emptyReviewSummary(),
       clientReviewSummary:
         reviewSummaries.get(application.job_client_clerk_id) || emptyReviewSummary(),
+      freelancerImageUrl: imageByClerkId.get(application.freelancer_clerk_id) || null,
+      clientImageUrl: imageByClerkId.get(application.job_client_clerk_id) || null,
     });
   } catch (error) {
     logger.error(`Error updating application ${applicationId}:`, error);
@@ -647,6 +704,9 @@ export async function getApplicationsForClient(clerkId) {
         normalizeLocationPayload(row.metadata?.location || {}),
       ])
     );
+    const freelancerImageByClerkId = new Map(
+      freelancerRows.map((row) => [row.clerk_id, imageUrlFromUserRow(row)])
+    );
 
     const jobsMap = new Map();
     result.forEach((app) => {
@@ -698,6 +758,7 @@ export async function getApplicationsForClient(clerkId) {
           clientReviewSummary:
             reviewSummaries.get(app.job_client_clerk_id) || emptyReviewSummary(),
           freelancerCompletedCount: completedCountByFreelancer.get(app.freelancer_clerk_id) || 0,
+          freelancerImageUrl: freelancerImageByClerkId.get(app.freelancer_clerk_id) || null,
           distanceKm,
         })
       );

@@ -5,11 +5,13 @@ import {
   getApplicationCountsByJobIds,
   getApplicationsByJobId,
   getApplicationsByFreelancerId,
+  getJobStatusesByJobIds,
 } from "#services/application.service.js";
 import { notifyUser } from "#services/notifications.service.js";
 import { getReviewSummariesByClerkIds, getUserByClerkId } from "#services/user.service.js";
 import { annotateLocationMatch, buildInYourAreaPhrase, normalizeLocationPayload } from "#utils/location.js";
 import { parseJobBudget, parseJobDocuments, parsePreferredTime } from "#utils/jobPosting.js";
+import { moderateJobPost } from "#utils/contentModeration.js";
 import { filterJobsByServices } from "#utils/jobServices.js";
 
 function parseStringArray(value) {
@@ -111,7 +113,11 @@ function enhanceJobsForViewer(jobs, viewerLocation, nearbyOnly = false) {
 async function enrichJobsWithClientProfiles(jobs) {
   const clientClerkIds = jobs.map((job) => job.clerkId).filter(Boolean);
   const reviewSummaries = await getReviewSummariesByClerkIds(clientClerkIds);
-  const applicantCounts = await getApplicationCountsByJobIds(jobs.map((job) => job.id));
+  const jobIds = jobs.map((job) => job.id);
+  const [applicantCounts, jobStatuses] = await Promise.all([
+    getApplicationCountsByJobIds(jobIds),
+    getJobStatusesByJobIds(jobIds),
+  ]);
 
   return jobs.map((job) => ({
     ...job,
@@ -122,6 +128,7 @@ async function enrichJobsWithClientProfiles(jobs) {
         latestReview: null,
       },
     applicantCount: applicantCounts.get(String(job.id)) || 0,
+    status: jobStatuses.get(String(job.id)) || "open",
   }));
 }
 
@@ -401,6 +408,11 @@ export async function createJobController(req, res) {
         success: false,
         message: "endDate cannot be before startDate",
       });
+    }
+
+    const moderation = moderateJobPost({ serviceType, specialistChoice, additionalInfo });
+    if (!moderation.ok) {
+      return res.status(400).json({ success: false, message: moderation.message });
     }
 
     // Budget is optional: the Post a task design has no budget field, so a
