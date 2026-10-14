@@ -7,6 +7,7 @@ import {
   updateBioSettings,
   validateUsernameFormat,
 } from "#services/bio.service.js";
+import { moderateText } from "#utils/contentModeration.js";
 
 export async function getMyBioController(req, res) {
   try {
@@ -20,6 +21,15 @@ export async function getMyBioController(req, res) {
 
 export async function updateMyBioController(req, res) {
   try {
+    const customLinks = Array.isArray(req.body?.customLinks) ? req.body.customLinks : [];
+    const moderationText = [req.body?.tagline, ...customLinks.map((link) => link?.label)]
+      .filter((value) => typeof value === "string")
+      .join(" ");
+    const moderation = moderateText(moderationText);
+    if (!moderation.ok) {
+      return res.status(400).json({ success: false, message: moderation.message });
+    }
+
     const settings = await updateBioSettings(req.user.clerkId, {
       username: req.body?.username,
       tagline: req.body?.tagline,

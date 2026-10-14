@@ -11,6 +11,7 @@ import {
   reorderProjects,
   updateProject,
 } from "#services/portfolio.service.js";
+import { moderateText } from "#utils/contentModeration.js";
 
 function asTrimmedString(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -78,9 +79,15 @@ export async function createProjectController(req, res) {
       return res.status(400).json({ success: false, message: "Title is required" });
     }
 
+    const description = asTrimmedString(req.body?.description) || null;
+    const moderation = moderateText(`${title} ${description || ""}`);
+    if (!moderation.ok) {
+      return res.status(400).json({ success: false, message: moderation.message });
+    }
+
     const project = await createProject(req.user.clerkId, {
       title,
-      description: asTrimmedString(req.body?.description) || null,
+      description,
       category: asTrimmedString(req.body?.category) || null,
       skills: asTrimmedString(req.body?.skills) || null,
       projectUrl: asTrimmedString(req.body?.projectUrl) || null,
@@ -105,6 +112,11 @@ export async function updateProjectController(req, res) {
 
     if (updates.title === "") {
       return res.status(400).json({ success: false, message: "Title cannot be empty" });
+    }
+
+    const moderation = moderateText(`${updates.title || ""} ${updates.description || ""}`);
+    if (!moderation.ok) {
+      return res.status(400).json({ success: false, message: moderation.message });
     }
 
     const project = await updateProject(id, req.user.clerkId, updates);
