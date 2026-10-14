@@ -1,6 +1,7 @@
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
 import { normalizeLocationPayload } from "#utils/location.js";
+import { dbTimestampToIso } from "#utils/dbTimestamp.js";
 
 let serviceRequestColumnStatePromise = null;
 
@@ -101,8 +102,8 @@ function transformJob(job) {
     clerkId: job.clerk_id,
     userName: job.user_name,
     userAvatar: job.user_avatar,
-    createdAt: job.created_at,
-    updatedAt: job.updated_at || null,
+    createdAt: dbTimestampToIso(job.created_at),
+    updatedAt: dbTimestampToIso(job.updated_at),
     location: hasLocation ? location : null,
     proximity:
       job.distance_km !== undefined || job.in_your_area !== undefined

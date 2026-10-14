@@ -2,6 +2,7 @@ import logger from "#config/logger.js";
 import { emitToUser } from "#config/socket.js";
 import { sql } from "#config/database.js";
 import { upsertUser } from "#services/user.service.js";
+import { dbTimestampToIso } from "#utils/dbTimestamp.js";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -25,7 +26,7 @@ function transformNotification(row) {
     read: row.read,
     type: row.type || null,
     conversationId: row.conversation_id || null,
-    createdAt: row.created_at,
+    createdAt: dbTimestampToIso(row.created_at),
   };
 }
 

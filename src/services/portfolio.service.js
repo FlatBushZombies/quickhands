@@ -1,6 +1,7 @@
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
 import { notifyUser } from "#services/notifications.service.js";
+import { dbTimestampToIso } from "#utils/dbTimestamp.js";
 
 const MAX_MEDIA_PER_PROJECT = 6;
 const VIEW_DEDUP_WINDOW_MINUTES = 30;
@@ -11,7 +12,7 @@ function transformMedia(row) {
     projectId: row.project_id,
     url: row.media_url,
     sortOrder: row.sort_order,
-    createdAt: row.created_at,
+    createdAt: dbTimestampToIso(row.created_at),
   };
 }
 
@@ -25,8 +26,8 @@ function transformProject(row, media = []) {
     skills: row.skills,
     projectUrl: row.project_url,
     sortOrder: row.sort_order,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: dbTimestampToIso(row.created_at),
+    updatedAt: dbTimestampToIso(row.updated_at),
     media: media.map(transformMedia),
   };
 }

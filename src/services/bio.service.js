@@ -8,6 +8,7 @@ import {
 } from "#services/user.service.js";
 import { getPortfolioForSpecialist } from "#services/portfolio.service.js";
 import { listReceivedReviews } from "#services/reviews.service.js";
+import { dbTimestampToIso } from "#utils/dbTimestamp.js";
 import { normalizeLocationPayload } from "#utils/location.js";
 
 // Link-in-bio settings live entirely under metadata.linkBio — same
@@ -362,6 +363,6 @@ export async function getPublicBioProfile(username) {
     testimonials,
     completedJobsCount,
     projects: portfolio.projects.slice(0, 6),
-    memberSince: row.created_at,
+    memberSince: dbTimestampToIso(row.created_at),
   };
 }

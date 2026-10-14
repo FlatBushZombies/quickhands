@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
 import { notifyUser } from "#services/notifications.service.js";
+import { dbTimestampToIso } from "#utils/dbTimestamp.js";
 import {
   buildCommunicationCardText,
   parseCommunicationCardText,
@@ -94,9 +95,9 @@ function mapConversation(row, currentClerkId = null) {
     participants: [participantOne, participantTwo],
     otherUser,
     lastMessageText: row.last_message_text,
-    lastMessageAt: row.last_message_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    lastMessageAt: dbTimestampToIso(row.last_message_at),
+    createdAt: dbTimestampToIso(row.created_at),
+    updatedAt: dbTimestampToIso(row.updated_at),
   };
 }
 
@@ -107,7 +108,7 @@ function mapMessage(row) {
     senderId: row.sender_clerk_id,
     senderName: row.sender_name || row.sender_clerk_id,
     text: row.text,
-    createdAt: row.created_at,
+    createdAt: dbTimestampToIso(row.created_at),
     ...(row.client_message_id ? { clientMessageId: row.client_message_id } : {}),
   };
 }

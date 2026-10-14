@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import logger from "#config/logger.js";
 import { sql } from "#config/database.js";
 import { calculateDistanceKm, hasCoordinates, normalizeLocationPayload, roundDistanceKm } from "#utils/location.js";
+import { dbTimestampToIso } from "#utils/dbTimestamp.js";
 
 const USER_OPTIONAL_COLUMNS = [
   "email",
@@ -188,8 +189,8 @@ function transformUser(user) {
       user.completed_onboarding === true || profile.completedOnboarding === true,
     location: hasLocation ? location : null,
     reviewSummary: buildReviewSummaryFromMetadata(metadata),
-    createdAt: user.created_at,
-    updatedAt: user.updated_at,
+    createdAt: dbTimestampToIso(user.created_at),
+    updatedAt: dbTimestampToIso(user.updated_at),
   };
 }
 
